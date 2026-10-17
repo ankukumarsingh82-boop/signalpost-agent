@@ -1,6 +1,8 @@
-"""Extract identity proof and company-owned links from a fetched homepage.
+"""Extract identity proof and company-owned links from a fetched page.
 
-Page facts are publishable only when the page contains the queried organisation number.
+A page is verified when it contains the organisation number, or the legal name
+together with the registered postcode, or the registered telephone number.
+Links are returned only for a verified page.
 """
 
 from __future__ import annotations
@@ -26,10 +28,98 @@ HIRING_HINTS = ("karriere", "stilling", "jobb", "jobs", "career", "vacanc", "led
 NEWS_HINTS = ("nyhet", "news", "press", "aktuelt", "blog")
 
 
+LEGAL_FORMS = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti", "iks", "fkf", "sf", "hf", "rhf"}
+_ORG_WEIGHTS = (3, 2, 7, 6, 5, 4, 3, 2)
+
+
 def organisation_number_pattern(org: str) -> re.Pattern[str]:
     digits = "".join(character for character in org if character.isdigit())
     spaced = r"[\s.\-]*".join(digits)
     return re.compile(rf"(?<!\d){spaced}(?!\d)", re.IGNORECASE)
+
+
+def valid_organisation_number(value: str) -> bool:
+    if not re.fullmatch(r"\d{9}", value):
+        return False
+    total = sum(int(digit) * weight for digit, weight in zip(value[:8], _ORG_WEIGHTS))
+    check = 11 - (total % 11)
+    if check == 11:
+        check = 0
+    if check == 10:
+        return False
+    return check == int(value[8])
+
+
+def _tokens(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9æøå]+", (value or "").casefold())
+
+
+def strip_html(value: str) -> str:
+    return " ".join(re.sub(r"<[^>]+>", " ", value or "").split())
+
+
+def legal_name_in_text(legal_name: str, text: str) -> bool:
+    name_tokens = _tokens(legal_name)
+    text_tokens = _tokens(text)
+    if not name_tokens or len(name_tokens) > len(text_tokens):
+        return False
+    distinctive = [token for token in name_tokens if token not in LEGAL_FORMS]
+    if len("".join(distinctive)) < 4:
+        return False
+    width = len(name_tokens)
+    for index in range(len(text_tokens) - width + 1):
+        if text_tokens[index : index + width] == name_tokens:
+            return True
+    return False
+
+
+def postcode_in_text(postcode: str | None, text: str) -> bool:
+    code = "".join(character for character in str(postcode or "") if character.isdigit())
+    if len(code) != 4:
+        return False
+    return re.search(rf"(?<!\d){code}(?!\d)", text) is not None
+
+
+def phone_in_text(phone: str | None, text: str) -> bool:
+    digits = "".join(character for character in str(phone or "") if character.isdigit())
+    if len(digits) < 8:
+        return False
+    target = digits[-8:]
+    spaced = r"[\s.\-]*".join(target)
+    return re.search(rf"(?<!\d){spaced}(?!\d)", text) is not None
+
+
+def foreign_organisation_number(text: str, org: str) -> bool:
+    """True when the page labels a different valid organisation number as its own."""
+    for match in re.finditer(r"(?<!\d)(\d{9})(?!\d)", text):
+        candidate = match.group(1)
+        if candidate == org or not valid_organisation_number(candidate):
+            continue
+        start = max(0, match.start() - 48)
+        window = text[start : match.end() + 12].casefold()
+        if re.search(r"organisasjonsnummer|org\.?\s*nr|orgnr|foretaksnummer", window):
+            return True
+    return False
+
+
+def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: str | None, telephone: str | None) -> tuple[str | None, str]:
+    """Return (method, claim span). Method is None when the page must not be used."""
+    if organisation_number_pattern(org).search(html):
+        match = organisation_number_pattern(org).search(html)
+        span = ""
+        if match:
+            start = max(0, match.start() - 80)
+            stop = min(len(html), match.end() + 80)
+            span = " ".join(re.sub(r"<[^>]+>", " ", html[start:stop]).split())[:240]
+        return "organisation_number", span
+    text = strip_html(html)
+    if foreign_organisation_number(text, org):
+        return None, ""
+    if legal_name and legal_name_in_text(legal_name, text) and postcode_in_text(postal_code, text):
+        return "name_and_postcode", f"{legal_name} {postal_code}"[:240]
+    if telephone and phone_in_text(telephone, text):
+        return "telephone", "registered telephone"
+    return None, ""
 
 
 def robots_blocks_homepage(text: str) -> bool:
@@ -225,18 +315,53 @@ def _same_site(page_url: str, link: str) -> bool:
     return link_host == page_host or link_host.endswith("." + page_host) or page_host.endswith("." + link_host)
 
 
-def extract_page(html: str, org: str, page_url: str) -> dict[str, object]:
+def extract_dated_news(html: str, page_url: str, *, limit: int = 5) -> list[dict[str, str]]:
+    """Headlines with a timestamp inside an article on an already verified page."""
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for article in re.findall(r"<article\b[^>]*>(.*?)</article>", html, flags=re.IGNORECASE | re.DOTALL):
+        time_match = re.search(r"<time\b[^>]*datetime=[\"']([^\"']+)[\"']", article, flags=re.IGNORECASE)
+        heading = re.search(r"<h[1-3][^>]*>(.*?)</h[1-3]>", article, flags=re.IGNORECASE | re.DOTALL)
+        if not time_match or not heading:
+            continue
+        published = time_match.group(1).strip()
+        if not re.match(r"20\d{2}-\d{2}-\d{2}", published):
+            continue
+        title = strip_html(heading.group(1))[:200]
+        if len(title) < 20:
+            continue
+        lowered = title.casefold()
+        if "cookie" in lowered or lowered in {"personvern", "privacy"}:
+            continue
+        link_match = re.search(r"<a\b[^>]*href=[\"']([^\"']+)[\"']", article, flags=re.IGNORECASE)
+        url = page_url
+        if link_match:
+            url = urljoin(page_url, link_match.group(1))
+            if not _same_site(page_url, url):
+                url = page_url
+        if title.casefold() in seen:
+            continue
+        seen.add(title.casefold())
+        items.append({"title": title, "url": url, "published_at": published[:25]})
+        if len(items) >= limit:
+            break
+    return items
+
+
+def extract_page(
+    html: str,
+    org: str,
+    page_url: str,
+    *,
+    legal_name: str | None = None,
+    postal_code: str | None = None,
+    telephone: str | None = None,
+) -> dict[str, object]:
     parser = _PageParser()
     parser.feed(html)
     parser.close()
-    matched = organisation_number_pattern(org).search(html) is not None
-    span = ""
-    if matched:
-        match = organisation_number_pattern(org).search(html)
-        if match:
-            start = max(0, match.start() - 80)
-            stop = min(len(html), match.end() + 80)
-            span = " ".join(re.sub(r"<[^>]+>", " ", html[start:stop]).split())[:240]
+    method, span = identity_match(html, org, legal_name=legal_name, postal_code=postal_code, telephone=telephone)
+    matched = method is not None
     descriptions = _json_ld_descriptions(parser.scripts)
     meta_description = ""
     for key, content in parser.metas:
@@ -272,11 +397,17 @@ def extract_page(html: str, org: str, page_url: str) -> dict[str, object]:
     title = " ".join(" ".join(parser.title_parts).split())[:180]
     return {
         "verified": matched,
+        "method": method,
         "title": title or None,
+        "dated_news": extract_dated_news(html, page_url) if matched else [],
         "description": description if matched else None,
+        "candidate_description": description,
         "social_links": social if matched else [],
         "hiring_pages": hiring if matched else [],
         "news_pages": news if matched else [],
+        "candidate_social_links": social,
+        "candidate_hiring_pages": hiring,
+        "candidate_news_pages": news,
         "claim_span": span,
         "rejected_social_links": social if not matched else [],
     }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import os
 import socket
 import threading
 import time
@@ -37,18 +38,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+# RFC 2544 benchmarking range. Python marks it private, but sandbox DNS uses it
+# as a stand-in for public hosts. Block it only when explicitly requested.
+BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
+
+def block_benchmark_nets() -> bool:
+    return os.environ.get("SIGNALPOST_BLOCK_BENCHMARK_NETS", "").strip().lower() in {"1", "true", "yes"}
+
+
 def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    return any(
-        (
-            any(ip in network for network in PRIVATE_NETWORKS),
-            ip.is_private,
-            ip.is_loopback,
-            ip.is_link_local,
-            ip.is_multicast,
-            ip.is_reserved,
-            ip.is_unspecified,
-        )
-    )
+    if any(ip in network for network in PRIVATE_NETWORKS):
+        return True
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        return True
+    if block_benchmark_nets() and ip in BENCHMARK_NETWORK:
+        return True
+    return False
 
 
 def assert_public_http_url(url: str) -> None:
@@ -123,7 +129,17 @@ class HttpClient:
         self._lock = threading.Lock()
         self._opener = build_opener()
 
-    def get(self, url: str, *, accept: str, timeout: float | None = None, max_bytes: int | None = None, public_only: bool = False) -> Fetch:
+    def get(
+        self,
+        url: str,
+        *,
+        accept: str,
+        timeout: float | None = None,
+        max_bytes: int | None = None,
+        public_only: bool = False,
+        headers: dict[str, str] | None = None,
+        retries: int | None = None,
+    ) -> Fetch:
         started = time.monotonic()
         retrieved_at = utc_now()
         limit = max_bytes or self.max_bytes
@@ -136,10 +152,14 @@ class HttpClient:
         last_error = "request failed"
         status: int | None = None
         attempts = 0
-        for attempt in range(self.retries + 1):
+        retry_budget = self.retries if retries is None else max(0, retries)
+        for attempt in range(retry_budget + 1):
             attempts = attempt + 1
             try:
-                request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept})
+                request_headers = {"User-Agent": USER_AGENT, "Accept": accept}
+                if headers:
+                    request_headers.update(headers)
+                request = Request(url, headers=request_headers)
                 with self._lock:
                     self.request_count += 1
                 with self._opener.open(request, timeout=timeout or self.timeout) as response:
@@ -174,7 +194,7 @@ class HttpClient:
             except (URLError, TimeoutError, socket.timeout, OSError) as exc:
                 last_error = str(exc)
                 status = None
-            if attempt < self.retries and status in {None, 429, 500, 502, 503, 504}:
+            if attempt < retry_budget and status in {None, 429, 500, 502, 503, 504}:
                 time.sleep(delay)
                 delay *= 2
         return self._empty(url, started, retrieved_at, error=last_error, status=status, attempts=attempts)
@@ -192,7 +212,8 @@ class HttpClient:
         return fetched
 
     def get_text(self, url: str, **kwargs: Any) -> Fetch:
-        return self.get(url, accept="text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.5", **kwargs)
+        accept = kwargs.pop("accept", "text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.5")
+        return self.get(url, accept=accept, **kwargs)
 
     def _fetch(
         self,

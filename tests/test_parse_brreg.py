@@ -97,6 +97,37 @@ def test_roles_drop_birth_dates():
     assert parsed["roles"][0]["role_code"] == "DAGL"
 
 
+def test_auditor_and_accountant_names_come_from_enhet_navn_list():
+    parsed = parse_roles(
+        {
+            "rollegrupper": [
+                {
+                    "type": {"kode": "REVI", "beskrivelse": "Revisor"},
+                    "roller": [
+                        {
+                            "enhet": {"organisasjonsnummer": "997039904", "navn": ["ØKSENDAL REVISJON AS"]},
+                            "type": {"kode": "REVI", "beskrivelse": "Revisor"},
+                        }
+                    ],
+                },
+                {
+                    "type": {"kode": "REGN", "beskrivelse": "Regnskapsfører"},
+                    "roller": [
+                        {
+                            "enhet": {"organisasjonsnummer": "926732072", "navn": ["ACCOUNT GROUP AS"]},
+                            "type": {"kode": "REGN", "beskrivelse": "Regnskapsfører"},
+                        }
+                    ],
+                },
+            ]
+        }
+    )
+    by_code = {role["role_code"]: role for role in parsed["roles"]}
+    assert by_code["REVI"]["name"] == "ØKSENDAL REVISJON AS"
+    assert by_code["REGN"]["name"] == "ACCOUNT GROUP AS"
+    assert by_code["REVI"]["holder_organisation_number"] == "997039904"
+
+
 def test_subunits_keep_explicit_zero_total():
     parsed = parse_subunit_page({"_embedded": {"underenheter": []}, "page": {"totalElements": 0, "totalPages": 0}})
     assert parsed["total"] == 0

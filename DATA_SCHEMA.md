@@ -67,9 +67,12 @@ A claim that is not `available` has `"value": null`. A checked workplace count o
 | --- | --- |
 | `legal_name`, `legal_form`, `organisation_status`, `business_address`, `postal_address`, `municipality`, `industry` | Entity register |
 | `employee_count`, `founding_date`, `vat_registered`, `share_capital`, `statutory_purpose`, `registered_activity` | Entity register. Absent keys are not zero |
-| `registry_listed_website` | Raw `hjemmeside` string |
-| `official_website` | Normalised register URL. Page content is separate |
-| `website_page_verified` | True only when the fetched page contains the organisation number |
+| `registry_listed_website` | Register `hjemmeside`, omitted when the host is shared or a directory |
+| `official_website` | Final URL only after page verification. Otherwise null |
+| `job_postings` | Active Arbeidsplassen ads with this `employer.orgnr` |
+| `public_news` | Dated Google News RSS items that match the organisation number, or the exact legal name plus municipality |
+| `company_news_items` | Dated headlines from article blocks on the verified site |
+| `website_page_verified` | True when a fetched page shows the organisation number, the legal name plus registered postcode, or the registered phone. False when a page was fetched and did not match |
 | `website_description`, `company_profile.{platform}`, `hiring_pages`, `company_news_pages` | Published only when `website_page_verified` is true |
 | `annual_accounts`, `latest_entity_accounts`, `latest_group_accounts` | Regnskapsregisteret. Group accounts are labelled and not mixed into the entity |
 | `accounts.{TYPE}.{YEAR}.{figure}` | One figure: revenue, operating result, profit before tax, annual result, assets, equity, debt |
@@ -81,7 +84,7 @@ A claim that is not `available` has `"value": null`. A checked workplace count o
 
 ## Evidence
 
-`source_class` is `official_registry`, `official_accounts`, `company_owned`, `wikidata`, or `wikipedia`. `content_sha256` is the response body. `retrieved_at` is when this run fetched it. `claim_span` is a short locator, not the whole document.
+`source_class` is `official_registry`, `official_accounts`, `company_owned`, `nav_jobs`, `news_rss`, `wikidata`, or `wikipedia`. `content_sha256` is the response body. `retrieved_at` is when this run fetched it. `claim_span` is a short locator, not the whole document.
 
 ## Refresh
 

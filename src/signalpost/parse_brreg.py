@@ -183,6 +183,18 @@ def parse_accounts(body: Any, *, limit: int = 12) -> dict[str, Any]:
     return {"records": records[:limit], "truncated": truncated, "returned_count": len(rows) if isinstance(body, list) else 0}
 
 
+def _entity_display_name(entity: dict[str, Any]) -> str | None:
+    """Role holder firms put the name in enhet.navn as a string or a list of strings."""
+    navn = entity.get("navn")
+    if isinstance(navn, str) and navn.strip():
+        return navn.strip()
+    if isinstance(navn, list):
+        parts = [part.strip() for part in navn if isinstance(part, str) and part.strip()]
+        if parts:
+            return " ".join(parts)
+    return None
+
+
 def parse_roles(body: Any, *, limit: int = 50) -> dict[str, Any]:
     """Normalize public roles. Dates of birth are discarded and never returned."""
     groups = body.get("rollegrupper") if isinstance(body, dict) else None
@@ -203,7 +215,7 @@ def parse_roles(body: Any, *, limit: int = 50) -> dict[str, Any]:
                 if isinstance(part, str) and part.strip()
             ).strip()
             if not display:
-                display = entity.get("navn") if isinstance(entity.get("navn"), str) else None
+                display = _entity_display_name(entity)
             role_type = item.get("type") if isinstance(item.get("type"), dict) else {}
             roles.append(
                 {

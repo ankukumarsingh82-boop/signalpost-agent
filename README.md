@@ -60,6 +60,12 @@ PYTHONPATH=src python3 -m signalpost view --input outputs/envelopes.jsonl --port
 
 Open `http://127.0.0.1:8765`. Routes: `/`, `/companies/{organisation_number}`, `/research`, `/refresh`.
 
+A standalone file needs no server. Open it directly on a phone or a laptop:
+
+```bash
+PYTHONPATH=src python3 -m signalpost view --input outputs/envelopes.jsonl --static outputs/viewer.html
+```
+
 ## Models, APIs, licences, cost
 
 No model is called. Summaries are filled from the published claims by a template. An external model key is not required and is not read.
@@ -68,9 +74,11 @@ No model is called. Summaries are filled from the published claims by a template
 | --- | --- | --- |
 | `data.brreg.no` Enhetsregisteret (entity, roles, subunits, group) | Identity, address, industry, employees, status, leadership, workplaces | [NLOD 2.0](https://data.norge.no/nlod/en/2.0). Data from Brønnøysundregistrene. |
 | `data.brreg.no` Regnskapsregisteret | Filed annual accounts and recent history | NLOD 2.0. Brønnøysundregistrene. |
-| Wikidata Query Service (`P2333`) | Description only when the item carries this exact organisation number | CC0 |
-| Wikipedia REST summary | Extract for the article linked from that Wikidata item | CC BY-SA |
-| Website stored as `hjemmeside` on the entity | The URL is a registry fact. Page text, profiles, and career links are published only if the page contains the organisation number and `robots.txt` does not disallow the homepage | The company's own site |
+| Wikidata Query Service (`P2333`) | Off unless `--wikidata` is passed. Description only when P2333 equals this organisation number | CC0 |
+| Wikipedia REST summary | Only with `--wikidata`, for the article linked from that item | CC BY-SA |
+| NAV Arbeidsplassen public feed | Active ads whose `employer.orgnr` equals this organisation number. The public token is fetched at runtime from `/api/publicToken` and is not stored in the repo | Free if you agree to the [feed terms](https://navikt.github.io/pam-stilling-feed/). The token is experimental and rotates. Inactive ads and contact details are not stored. Finn.no ads are not in the feed. The scan covers feed pages modified in the last 45 days, capped at 360 pages |
+| Google News RSS | Dated items only. Accepted when the item contains the organisation number, or the exact legal name and the registered municipality outside that name. The evidence is the RSS item; article bodies are not fetched | The starter kit treats RSS as a rights-review experiment because the article is not re-fetched. This agent publishes only the stricter matches above, with that limit stated on the claim |
+| Website stored as `hjemmeside` | Fetched when `robots.txt` allows it, plus a contact/about page. Published as the official site only when a page shows the organisation number, or the legal name and registered postcode, or the registered phone. Shared registrable domains (3 or more organisations in the 2025 universe) and directory hosts are not fetched or published. A redirect to another registrable domain is rejected | The company's own site |
 
 Measured cost for a run: **USD 0**. There is no paid API. Declared external cost is under the USD 10 cap.
 

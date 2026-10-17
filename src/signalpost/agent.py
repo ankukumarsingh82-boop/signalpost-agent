@@ -7,8 +7,11 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
+from .domains import same_registrable_domain, unpublishable_reason
 from .envelope import build_envelope
-from .http_client import Fetch, HttpClient, availability_for_http, normalize_website
+from .http_client import Fetch, HttpClient, UnsafeUrl, assert_public_http_url, availability_for_http, normalize_website
+from .nav_jobs import match_nav_jobs
+from .news import research_news
 from .parse_brreg import merge_workplaces, parse_accounts, parse_entity, parse_group, parse_roles, parse_subunit_page
 from .parse_website import extract_page, robots_blocks_homepage
 from .wikidata import wikipedia_title
@@ -68,6 +71,8 @@ def research_company(
     run: dict[str, Any],
     *,
     skip_website: bool = False,
+    skip_news: bool = False,
+    nav_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     requests = 0
@@ -159,6 +164,9 @@ def research_company(
         group = {"availability": "not_available", "hit": _hit(entity_fetch), "note": "Entity was not found, so group structure was not requested."}
 
     website = _research_website(client, track, parsed, skip_website=skip_website)
+    errors.extend(item for item in (website.get("errors") or []) if item.get("error") in {"shared_domain", "directory_host", "invalid_host", "cross_domain_or_directory_redirect"} or str(item.get("error") or "").startswith("blocked_url"))
+    jobs = match_nav_jobs(client, track, nav_catalog, org, parsed)
+    news = research_news(client, track, parsed, skip=skip_news)
     wiki = _research_wiki(client, track, wiki_row, entity_state)
 
     research = {
@@ -168,6 +176,8 @@ def research_company(
         "workplaces": workplaces,
         "group": group,
         "website": website,
+        "jobs": jobs,
+        "news": news,
         "wiki": wiki,
         "errors": errors,
         "terminal_status": "completed",
@@ -185,6 +195,8 @@ def research_company(
                 "workplaces": {"availability": "failed", "note": "Skipped after an internal error."},
                 "group": {"availability": "failed", "note": "Skipped after an internal error."},
                 "website": {"availability": "failed", "note": "Skipped after an internal error."},
+                "jobs": {"availability": "failed", "note": "Skipped after an internal error."},
+                "news": {"availability": "failed", "note": "Skipped after an internal error."},
                 "wiki": {"availability": "failed", "note": "Skipped after an internal error."},
                 "errors": errors + [{"error": str(exc)}],
                 "terminal_status": "failed",
@@ -194,62 +206,203 @@ def research_company(
         )
 
 
+_PAGE_HINTS = ("kontakt", "contact", "om-oss", "omoss", "about", "personvern", "privacy")
+_FALLBACK_PATHS = ("/kontakt", "/kontakt-oss", "/contact", "/om-oss", "/about", "/about-us", "/personvern")
+
+
+def _empty_website(availability: str, note: str, **extra: Any) -> dict[str, Any]:
+    module = {
+        "availability": availability,
+        "page_state": extra.pop("page_state", availability),
+        "verified": False,
+        "note": note,
+        "errors": extra.pop("errors", []),
+        "hits": [],
+        "social_links": [],
+        "hiring_pages": [],
+        "news_pages": [],
+        "dated_news": [],
+    }
+    module.update(extra)
+    return module
+
+
+def _candidate_pages(html: str, page_url: str) -> list[str]:
+    from urllib.parse import urljoin, urlsplit
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str) -> None:
+        absolute = urljoin(page_url, url)
+        parts = urlsplit(absolute)
+        if parts.scheme not in {"http", "https"}:
+            return
+        if not same_registrable_domain(page_url, absolute):
+            return
+        key = parts._replace(fragment="", query="").geturl()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(key)
+
+    for href in re_hrefs(html):
+        lowered = href.casefold()
+        if any(hint in lowered for hint in _PAGE_HINTS):
+            add(href)
+    for path in _FALLBACK_PATHS:
+        add(path)
+    return found[:4]
+
+
+def re_hrefs(html: str) -> list[str]:
+    import re
+
+    return re.findall(r"""href=["']([^"'#]+)""", html, flags=re.IGNORECASE)
+
+
 def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | None, *, skip_website: bool) -> dict[str, Any]:
-    """The register's hjemmeside is a registry fact. Page content is published only after an exact number match."""
+    """Publish official_website only after the page proves it is this company."""
     if parsed is None:
-        return {"availability": "not_available", "page_state": "not_available", "note": "No confirmed entity, so no website was fetched."}
+        return _empty_website("not_available", "No confirmed entity, so no website was fetched.")
     listed = normalize_website(parsed.get("registry_website"))
     if not listed:
-        return {"availability": "not_available", "page_state": "not_available", "note": "The entity register has no website for this organisation."}
-    base = {
-        "availability": "available",
-        "registry_url": listed,
-        "final_url": listed,
-        "page_state": "not_available",
-        "note": "Website string recorded by the entity register. The page was not fetched.",
-    }
+        return _empty_website("not_available", "The entity register has no website for this organisation.")
+    reason = unpublishable_reason(listed)
+    if reason:
+        return _empty_website(
+            "ambiguous",
+            "The registered website host is shared by several organisations or is a directory. It was not fetched and is not published.",
+            registry_url=listed,
+            errors=[{"url": listed, "status": None, "error": reason}],
+        )
     if skip_website:
-        base["note"] = "Website string recorded by the entity register. Page fetch was disabled for this run."
-        return base
+        return _empty_website(
+            "ambiguous",
+            "A website is recorded in the register. Page fetch was disabled, so it was not verified and is not published as the official site.",
+            registry_url=listed,
+        )
     try:
-        from .http_client import assert_public_http_url
-
         assert_public_http_url(listed)
-    except Exception as exc:
-        base["page_state"] = "blocked"
-        base["note"] = f"Registry website was not fetched: {exc}"
-        return base
+    except UnsafeUrl as exc:
+        return _empty_website(
+            "blocked",
+            "The registered website was not fetched because the URL failed the public-address check.",
+            registry_url=listed,
+            errors=[{"url": listed, "status": None, "error": f"blocked_url: {exc}"}],
+        )
     allowed, robots = _homepage_allowed(client, listed)
     if robots is not None:
         track(robots)
     if not allowed:
-        base["page_state"] = "blocked"
-        base["hit"] = _hit(robots) if robots is not None else None
-        base["note"] = "robots.txt disallows the homepage. The register's website string is kept; page content is not."
-        base["claim_span"] = "User-agent: * Disallow: /"
-        return base
-    fetched = track(client.get_text(listed, timeout=8, max_bytes=700_000, public_only=True))
-    state = availability_for_http(fetched.status)
-    base["hit"] = _hit(fetched)
-    base["final_url"] = fetched.final_url or listed
-    if state != "available":
-        base["page_state"] = state
-        base["note"] = fetched.error or "Registered website could not be fetched. The register's website string is kept."
-        return base
-    extracted = extract_page(fetched.text, str(parsed.get("organisation_number") or ""), fetched.final_url)
-    if not extracted["verified"]:
-        base["page_state"] = "ambiguous"
-        base["note"] = "The registered page did not contain this organisation number, so its content was not published."
-        base["claim_span"] = fetched.final_url
-        return base
-    base["page_state"] = "available"
-    base["description"] = extracted["description"]
-    base["social_links"] = extracted["social_links"]
-    base["hiring_pages"] = extracted["hiring_pages"]
-    base["news_pages"] = extracted["news_pages"]
-    base["claim_span"] = extracted["claim_span"] or f"organisation number {parsed.get('organisation_number')}"
-    base["note"] = "Organisation number found on the page."
-    return base
+        return _empty_website(
+            "blocked",
+            "robots.txt disallows the homepage, so the page was not fetched and is not published as the official site.",
+            registry_url=listed,
+            hit=_hit(robots) if robots is not None else None,
+            claim_span="User-agent: * Disallow: /",
+        )
+    org = str(parsed.get("organisation_number") or "")
+    address = parsed.get("business_address") if isinstance(parsed.get("business_address"), dict) else {}
+    postal = None
+    if isinstance(address, dict):
+        postal = address.get("postal_code")
+    if not postal and isinstance(parsed.get("postal_address"), dict):
+        postal = parsed["postal_address"].get("postal_code")
+    identity = {
+        "legal_name": parsed.get("name"),
+        "postal_code": postal,
+        "telephone": parsed.get("telephone"),
+    }
+    fetched = track(client.get_text(listed, timeout=8, max_bytes=700_000, public_only=True, retries=1))
+    if fetched.error and fetched.status not in {200, 404, 410}:
+        pass
+    final_url = fetched.final_url or listed
+    if availability_for_http(fetched.status) != "available":
+        state = availability_for_http(fetched.status)
+        return _empty_website(
+            state if state in {"blocked", "failed", "not_available"} else "failed",
+            fetched.error or "The registered website could not be fetched, so it is not published.",
+            registry_url=listed,
+            hit=_hit(fetched),
+            errors=[{"url": listed, "status": fetched.status, "error": fetched.error or state}],
+        )
+    if unpublishable_reason(final_url) or not same_registrable_domain(listed, final_url):
+        return _empty_website(
+            "ambiguous",
+            "The fetch redirected to a different registrable domain or a directory host, so the page was rejected.",
+            registry_url=listed,
+            hit=_hit(fetched),
+            errors=[{"url": listed, "status": fetched.status, "error": "cross_domain_or_directory_redirect", "final_url": final_url}],
+        )
+    pages: list[tuple[Fetch, dict[str, object]]] = []
+    pages.append((fetched, extract_page(fetched.text, org, final_url, **identity)))
+    for candidate in _candidate_pages(fetched.text, final_url):
+        extra = track(client.get_text(candidate, timeout=6, max_bytes=500_000, public_only=True, retries=0))
+        if extra.status != 200 or not extra.text:
+            continue
+        if unpublishable_reason(extra.final_url) or not same_registrable_domain(listed, extra.final_url):
+            continue
+        pages.append((extra, extract_page(extra.text, org, extra.final_url, **identity)))
+    verified_pages = [(page, extracted) for page, extracted in pages if extracted.get("verified")]
+    if not verified_pages:
+        return _empty_website(
+            "ambiguous",
+            "The registered site did not show this organisation number, or the legal name with the registered postcode, or the registered phone. It is not published as the official site.",
+            registry_url=listed,
+            page_state="ambiguous",
+            hit=_hit(fetched),
+            claim_span=final_url,
+        )
+    method = str(verified_pages[0][1].get("method") or "organisation_number")
+    span = str(verified_pages[0][1].get("claim_span") or f"organisation number {org}")
+    description = None
+    social: list[dict[str, str]] = []
+    hiring: list[str] = []
+    news_pages: list[str] = []
+    dated: list[dict[str, str]] = []
+    seen_social: set[str] = set()
+    hits = []
+    for page, extracted in pages:
+        hits.append(_hit(page))
+        if description is None and (extracted.get("description") or extracted.get("candidate_description")):
+            description = extracted.get("description") or extracted.get("candidate_description")
+        for item in extracted.get("candidate_social_links") or extracted.get("social_links") or []:
+            if item["url"] not in seen_social:
+                seen_social.add(item["url"])
+                social.append(item)
+        for link in extracted.get("candidate_hiring_pages") or extracted.get("hiring_pages") or []:
+            if link not in hiring and len(hiring) < 5:
+                hiring.append(link)
+        for link in extracted.get("candidate_news_pages") or extracted.get("news_pages") or []:
+            if link not in news_pages and len(news_pages) < 5:
+                news_pages.append(link)
+        for item in extracted.get("dated_news") or []:
+            if len(dated) < 5 and item.get("title") not in {row["title"] for row in dated}:
+                dated.append(item)
+    notes = {
+        "organisation_number": "The page contains this organisation number.",
+        "name_and_postcode": "The page contains the legal name and the registered postcode.",
+        "telephone": "The page contains the telephone number recorded in the entity register.",
+    }
+    return {
+        "availability": "available",
+        "page_state": "available",
+        "verified": True,
+        "verification_method": method,
+        "registry_url": listed,
+        "final_url": final_url,
+        "description": description,
+        "social_links": social[:8],
+        "hiring_pages": hiring,
+        "news_pages": news_pages,
+        "dated_news": dated,
+        "hits": hits[:5],
+        "hit": hits[0],
+        "claim_span": span,
+        "note": notes.get(method, "The page matched this organisation."),
+        "errors": [],
+    }
 
 
 def _research_wiki(client: HttpClient, track: Any, wiki_row: dict[str, Any] | None, entity_state: str) -> dict[str, Any]:

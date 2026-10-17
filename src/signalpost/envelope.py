@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .domains import unpublishable_reason
+from .http_client import normalize_website
 from .synthesize import synthesize
 
 ALLOWED_AVAILABILITY = {
@@ -192,7 +194,7 @@ def build_envelope(org: str, research: dict[str, Any], run: dict[str, Any]) -> d
         _maybe(builder, "registered_activity", parsed.get("registered_activity") or None, entity_ids, confidence=0.99)
         _maybe(builder, "historical_names", parsed.get("historical_names") or None, entity_ids, confidence=0.99)
         _maybe(builder, "telephone", parsed.get("telephone"), entity_ids, confidence=0.99)
-        _maybe(builder, "registry_listed_website", parsed.get("registry_website"), entity_ids, confidence=0.9, note="Company-reported website stored in the entity register. Not treated as a verified site by itself.")
+        _add_registry_website(builder, parsed.get("registry_website"), entity_ids)
         _maybe(builder, "in_corporate_group", parsed.get("in_corporate_group"), entity_ids, confidence=0.99)
         _maybe(
             builder,
@@ -209,6 +211,8 @@ def build_envelope(org: str, research: dict[str, Any], run: dict[str, Any]) -> d
     _add_workplaces(builder, research.get("workplaces") or {}, entity_state)
     _add_group(builder, research.get("group") or {}, entity_state)
     _add_website(builder, research.get("website") or {})
+    _add_jobs(builder, research.get("jobs") or {})
+    _add_news(builder, research.get("news") or {})
     _add_wiki(builder, research.get("wiki") or {})
 
     operations = research.get("operations") or {}
@@ -416,6 +420,38 @@ def _add_group(builder: EnvelopeBuilder, module: dict[str, Any], entity_state: s
         builder.add_claim(f"subsidiary.{sub}", subsidiary, "available", evidence_ids, confidence=0.99, as_of=subsidiary.get("as_of"))
 
 
+def _add_registry_website(builder: EnvelopeBuilder, raw: Any, entity_ids: list[str]) -> None:
+    normalized = normalize_website(str(raw).strip()) if raw else None
+    if not normalized:
+        builder.add_claim(
+            "registry_listed_website",
+            None,
+            "not_available",
+            entity_ids,
+            confidence=0.9,
+            note="The entity register has no website for this organisation.",
+        )
+        return
+    if unpublishable_reason(normalized):
+        builder.add_claim(
+            "registry_listed_website",
+            None,
+            "ambiguous",
+            entity_ids,
+            confidence=0.9,
+            note="The entity register stores a website on a shared or directory domain. The URL is not published.",
+        )
+        return
+    builder.add_claim(
+        "registry_listed_website",
+        normalized,
+        "available",
+        entity_ids,
+        confidence=0.9,
+        note="Company-reported website stored in the entity register. Not treated as a verified official site by itself.",
+    )
+
+
 def _add_website(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
     state = module.get("availability") or "not_available"
     page_state = module.get("page_state") or "not_available"
@@ -424,37 +460,78 @@ def _add_website(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
     page_ids = _hit_evidence(builder, hit, "company_owned", module.get("claim_span") or note or "website") if hit else []
     if state != "available":
         builder.add_claim("official_website", None, state, page_ids, confidence=0.0, note=note or "Website was not available.")
-        builder.add_claim("website_page_verified", None, "not_available", page_ids, confidence=0.0, note="No registered website to check.")
-        for field in ("website_description", "company_profiles", "hiring_pages", "company_news_pages"):
-            builder.add_claim(field, None, "not_available" if state in {"not_available", "ambiguous", "blocked"} else state, page_ids, confidence=0.0, note="Not published without an exact website match.")
+        checked = state == "ambiguous" and bool(hit)
+        if checked:
+            verified_state = "available"
+            verified_value: bool | None = False
+            verified_note = note
+        elif state in {"blocked", "failed"}:
+            verified_state = state
+            verified_value = None
+            verified_note = note
+        else:
+            verified_state = "not_available"
+            verified_value = None
+            verified_note = note if state == "ambiguous" else "No registered website to check."
+        builder.add_claim(
+            "website_page_verified",
+            verified_value,
+            verified_state,
+            page_ids,
+            confidence=0.8 if checked else 0.0,
+            note=verified_note,
+        )
+        for field in ("website_description", "company_profiles", "hiring_pages", "company_news_pages", "company_news_items"):
+            builder.add_claim(field, None, "not_available" if state in {"not_available", "ambiguous", "blocked"} else state, page_ids, confidence=0.0, note="Not published without a verified company page.")
         return
-    verified = page_state == "available"
-    url = module.get("final_url") if verified else module.get("registry_url")
-    entity_ids = [item["id"] for item in builder.evidence if item["source_class"] == "official_registry"][:1]
-    website_evidence = list(dict.fromkeys([*entity_ids, *(page_ids if verified else [])])) or page_ids
+    verified = bool(module.get("verified")) and page_state == "available" and state == "available"
+    hits = module.get("hits") or ([hit] if hit else [])
+    if hits:
+        page_ids = []
+        for item in hits[:5]:
+            page_ids.extend(_hit_evidence(builder, item, "company_owned", module.get("claim_span") or note or "website"))
+    if not verified:
+        follow = state if state in ALLOWED_AVAILABILITY else "ambiguous"
+        if follow == "available":
+            follow = "ambiguous"
+        builder.add_claim(
+            "official_website",
+            None,
+            follow,
+            page_ids,
+            confidence=0.0,
+            note=note or "The registered website was not verified, so it is not published as the official site.",
+        )
+        checked = page_state == "ambiguous"
+        builder.add_claim(
+            "website_page_verified",
+            False if checked else None,
+            "available" if checked else (page_state if page_state in ALLOWED_AVAILABILITY and page_state != "available" else "not_available"),
+            page_ids,
+            confidence=0.8 if checked else 0.0,
+            note=note,
+        )
+        for field in ("website_description", "company_profiles", "hiring_pages", "company_news_pages", "company_news_items"):
+            builder.add_claim(field, None, "not_available" if follow in {"ambiguous", "blocked", "not_available"} else follow, page_ids, confidence=0.0, note="Not published without a verified company page.")
+        return
+    method = module.get("verification_method") or "organisation_number"
+    confidence = {"organisation_number": 0.95, "name_and_postcode": 0.86, "telephone": 0.8}.get(method, 0.8)
     builder.add_claim(
         "official_website",
-        url,
+        module.get("final_url"),
         "available",
-        website_evidence,
-        confidence=0.95 if verified else 0.7,
-        note="Organisation number was found on the fetched page." if verified else "Value is the hjemmeside recorded for this organisation number. Page content was not published.",
+        page_ids,
+        confidence=confidence,
+        note=note or "Verified company website.",
     )
     builder.add_claim(
         "website_page_verified",
-        verified,
-        "available" if page_state in {"available", "ambiguous"} else page_state if page_state in ALLOWED_AVAILABILITY else "not_available",
-        page_ids or builder.claims[-1]["evidence_ids"],
-        confidence=0.95 if verified else 0.7,
-        note=note,
+        True,
+        "available",
+        page_ids,
+        confidence=confidence,
+        note=f"Verification method: {method}.",
     )
-    if not verified:
-        for field in ("website_description", "company_profiles", "hiring_pages", "company_news_pages"):
-            follow = "not_available" if page_state in {"ambiguous", "blocked", "not_available"} else page_state
-            if follow not in ALLOWED_AVAILABILITY:
-                follow = "not_available"
-            builder.add_claim(field, None, follow, page_ids, confidence=0.0, note="Not published without an exact organisation-number match on the page.")
-        return
     if module.get("description"):
         builder.add_claim("website_description", module["description"], "available", page_ids, confidence=0.8, note="Company-owned description. Not an independent review.")
     else:
@@ -479,7 +556,62 @@ def _add_website(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
     if module.get("news_pages"):
         builder.add_claim("company_news_pages", module["news_pages"], "available", page_ids, confidence=0.7, note="Company-owned news or press links.")
     else:
-        builder.add_claim("company_news_pages", None, "not_available", page_ids, confidence=0.7, note="No company news link was found on the verified homepage.")
+        builder.add_claim("company_news_pages", None, "not_available", page_ids, confidence=0.7, note="No company news link was found on the verified pages.")
+    dated = module.get("dated_news") or []
+    if dated:
+        builder.add_claim(
+            "company_news_items",
+            dated,
+            "available",
+            page_ids,
+            confidence=0.7,
+            note="Dated headlines from article blocks on the verified site. Not an independent news search.",
+        )
+    else:
+        builder.add_claim("company_news_items", None, "not_available", page_ids, confidence=0.7, note="The verified pages had no dated article headlines.")
+
+
+def _add_jobs(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
+    state = module.get("availability") or "not_available"
+    hits = module.get("hits") or []
+    evidence_ids: list[str] = []
+    for hit in hits:
+        evidence_ids.extend(_hit_evidence(builder, hit, "nav_jobs", hit.get("span") or "arbeidsplassen"))
+    if state != "available":
+        builder.add_claim("job_postings", None, state, evidence_ids, confidence=0.0, note=module.get("note") or "No job ads were matched.")
+        return
+    builder.add_claim(
+        "job_postings",
+        {
+            "source": "nav_arbeidsplassen",
+            "matched_count": module.get("matched_count"),
+            "truncated": bool(module.get("truncated")),
+            "postings": module.get("postings") or [],
+        },
+        "available",
+        evidence_ids,
+        confidence=0.95,
+        note=module.get("note") or "employer.orgnr matched this organisation number.",
+    )
+
+
+def _add_news(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
+    state = module.get("availability") or "not_available"
+    hit = module.get("hit")
+    items = module.get("items") or []
+    span = "; ".join(item.get("title", "") for item in items[:5])[:400] or module.get("note") or "google news rss"
+    evidence_ids = _hit_evidence(builder, hit, "news_rss", span) if hit else []
+    if state != "available":
+        builder.add_claim("public_news", None, state, evidence_ids, confidence=0.0, note=module.get("note") or "No dated news item was accepted.")
+        return
+    builder.add_claim(
+        "public_news",
+        {"source": "google_news_rss", "items": items},
+        "available",
+        evidence_ids,
+        confidence=0.72,
+        note=module.get("note"),
+    )
 
 
 def _add_wiki(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:

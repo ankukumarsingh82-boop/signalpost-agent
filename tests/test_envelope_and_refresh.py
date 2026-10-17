@@ -1,3 +1,5 @@
+import json
+
 from signalpost.envelope import build_envelope
 from signalpost.refresh import diff_envelopes
 from signalpost.validate import validate_envelopes
@@ -106,6 +108,66 @@ def test_refresh_is_idempotent_until_a_value_changes():
     assert employee["previous_value"] == 11
     assert employee["current_value"] == 12
     assert "synthesis" not in fields
+
+
+def test_unverified_website_is_not_published_as_official():
+    research = _research()
+    research["entity"]["parsed"]["registry_website"] = "https://example.com"
+    research["website"] = {
+        "availability": "ambiguous",
+        "page_state": "ambiguous",
+        "verified": False,
+        "note": "The registered page did not identify this company.",
+        "hit": {**HIT, "url": "https://example.com", "final_url": "https://example.com"},
+        "claim_span": "https://example.com",
+    }
+    envelope = build_envelope("810034882", research, RUN)
+    validation = validate_envelopes([envelope], ["810034882"])
+    assert validation["passed"], validation["issues"]
+    by_field = {claim["field"]: claim for claim in envelope["claims"]}
+    assert by_field["official_website"]["availability"] == "ambiguous"
+    assert by_field["official_website"]["value"] is None
+    assert by_field["website_page_verified"]["value"] is False
+    assert "example.com" not in envelope["synthesis"]["summary"] or "not the official website" in envelope["synthesis"]["summary"]
+    assert "was accepted" not in envelope["synthesis"]["summary"]
+
+
+def test_shared_domain_registry_website_is_not_published():
+    research = _research()
+    research["entity"]["parsed"]["registry_website"] = "https://www.obos.no/sameie"
+    research["website"] = {
+        "availability": "ambiguous",
+        "note": "Shared domain.",
+        "errors": [{"url": "https://www.obos.no/sameie", "error": "shared_domain"}],
+    }
+    envelope = build_envelope("810034882", research, RUN)
+    by_field = {claim["field"]: claim for claim in envelope["claims"]}
+    assert by_field["registry_listed_website"]["value"] is None
+    assert by_field["registry_listed_website"]["availability"] == "ambiguous"
+    assert by_field["official_website"]["value"] is None
+    rendered = json.dumps(envelope)
+    assert "obos.no" not in rendered
+
+
+def test_accounts_trend_uses_company_figures_only():
+    research = _research()
+    research["accounts"]["parsed"]["records"].append(
+        {
+            "account_type": "SELSKAP",
+            "period_from": "2023-01-01",
+            "period_to": "2023-12-31",
+            "currency": "NOK",
+            "record_id": 8,
+            "figures": {
+                "revenue": {"amount": 800, "currency": "NOK", "period_to": "2023-12-31"},
+                "annual_result": {"amount": 50, "currency": "NOK", "period_to": "2023-12-31"},
+            },
+        }
+    )
+    envelope = build_envelope("810034882", research, RUN)
+    summary = envelope["synthesis"]["summary"]
+    assert "revenue 800 NOK in 2023 and 1,000 NOK in 2024 (up)" in summary
+    assert "annual result 50 NOK in 2023 and 100 NOK in 2024 (up)" in summary
 
 
 def test_not_found_entity_still_emits_one_envelope():

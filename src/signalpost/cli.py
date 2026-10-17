@@ -18,6 +18,7 @@ from .agent import research_company
 from .envelope import apply_refresh_metadata
 from .http_client import HttpClient
 from .inputs import read_organisations
+from .nav_jobs import build_nav_catalog
 from .refresh import diff_envelopes
 from .validate import validate_envelopes
 from .wikidata import fetch_wikidata
@@ -81,6 +82,11 @@ def _report(envelopes: list[dict[str, Any]], *, run_id: str, started_at: str, co
         "leadership": sum(_claim_available(item, "leadership") for item in envelopes),
         "registered_workplaces": sum(_claim_available(item, "registered_workplaces") for item in envelopes),
         "official_website": sum(_claim_available(item, "official_website") for item in envelopes),
+        "registry_listed_website": sum(_claim_available(item, "registry_listed_website") for item in envelopes),
+        "website_description": sum(_claim_available(item, "website_description") for item in envelopes),
+        "employee_count": sum(_claim_available(item, "employee_count") for item in envelopes),
+        "job_postings": sum(_claim_available(item, "job_postings") for item in envelopes),
+        "public_news": sum(_claim_available(item, "public_news") for item in envelopes),
         "hiring_pages": sum(_claim_available(item, "hiring_pages") for item in envelopes),
         "wikipedia_summary": sum(_claim_available(item, "wikipedia_summary") for item in envelopes),
         "wikidata_description": sum(_claim_available(item, "wikidata_description") for item in envelopes),
@@ -118,9 +124,11 @@ def _report(envelopes: list[dict[str, Any]], *, run_id: str, started_at: str, co
         "apis": [
             "https://data.brreg.no/enhetsregisteret/api (NLOD)",
             "https://data.brreg.no/regnskapsregisteret/regnskap (NLOD)",
-            "https://query.wikidata.org/sparql (CC0)",
-            "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA)",
-            "company websites listed in the entity register, fetched only when robots.txt allows",
+            "https://query.wikidata.org/sparql (CC0, only with --wikidata)",
+            "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA, only with --wikidata)",
+            "https://pam-stilling-feed.nav.no public feed (free under NAV Arbeidsplassen terms; token fetched at runtime)",
+            "https://news.google.com/rss/search (RSS titles only; article bodies are not fetched)",
+            "company websites listed in the entity register, fetched only when robots.txt allows and the page identifies the company",
         ],
         "validation": validation,
     }
@@ -144,10 +152,24 @@ def run_batch(args: argparse.Namespace) -> int:
     pending = [org for org in dict.fromkeys(orgs) if org not in done]
     client = HttpClient(timeout=args.timeout, retries=args.retries)
     wiki: dict[str, dict[str, Any]] = {}
-    if pending and not args.skip_wikidata:
+    if pending and args.wikidata:
         print(f"Looking up Wikidata for {len(pending)} organisation numbers...", file=sys.stderr)
         wiki = fetch_wikidata(client, pending)
         print(f"Wikidata matched {len(wiki)} organisation numbers.", file=sys.stderr)
+    nav_catalog = None
+    if pending and not args.skip_nav:
+        print("Scanning the NAV Arbeidsplassen public feed...", file=sys.stderr)
+        nav_catalog = build_nav_catalog(client, days=args.nav_days, max_pages=args.nav_max_pages)
+        if nav_catalog.get("error"):
+            print(f"NAV feed unavailable: {nav_catalog['error']}", file=sys.stderr)
+        else:
+            print(
+                f"NAV index: {nav_catalog.get('pages')} pages, {nav_catalog.get('active_stubs')} active ads, since {nav_catalog.get('since')}.",
+                file=sys.stderr,
+            )
+        report_nav = {key: nav_catalog.get(key) for key in ("since", "days", "pages", "active_stubs", "capped", "error", "note")}
+    else:
+        report_nav = {"skipped": True}
     run_id = args.run_id or _utc_stamp()
     run = {"run_id": run_id, "started_at": started_at, "completed_at": started_at}
     lock = threading.Lock()
@@ -155,7 +177,15 @@ def run_batch(args: argparse.Namespace) -> int:
 
     def one(org: str) -> dict[str, Any]:
         try:
-            return research_company(org, client, wiki.get(org), run, skip_website=args.skip_website)
+            return research_company(
+                org,
+                client,
+                wiki.get(org),
+                run,
+                skip_website=args.skip_website,
+                skip_news=args.skip_news,
+                nav_catalog=nav_catalog,
+            )
         except Exception as exc:
             return research_company_failure(org, run, exc)
 
@@ -199,6 +229,7 @@ def run_batch(args: argparse.Namespace) -> int:
         resumed=resumed,
     )
     report["operations"]["http_requests_including_shared_lookups"] = client.request_count
+    report["nav_feed"] = report_nav
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -218,6 +249,8 @@ def research_company_failure(org: str, run: dict[str, Any], exc: Exception) -> d
             "workplaces": {"availability": "failed", "note": "Unhandled error."},
             "group": {"availability": "failed", "note": "Unhandled error."},
             "website": {"availability": "failed", "note": "Unhandled error."},
+            "jobs": {"availability": "failed", "note": "Unhandled error."},
+            "news": {"availability": "failed", "note": "Unhandled error."},
             "wiki": {"availability": "failed", "note": "Unhandled error."},
             "errors": [{"error": str(exc)}],
             "terminal_status": "failed",
@@ -251,7 +284,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--checkpoint-every", type=int, default=25)
     run.add_argument("--resume", action="store_true")
     run.add_argument("--skip-website", action="store_true")
-    run.add_argument("--skip-wikidata", action="store_true")
+    run.add_argument("--skip-news", action="store_true")
+    run.add_argument("--skip-nav", action="store_true")
+    run.add_argument("--nav-days", type=int, default=45, help="How far back to scan the NAV public feed")
+    run.add_argument("--nav-max-pages", type=int, default=360)
+    run.add_argument("--wikidata", action="store_true", help="Also query Wikidata P2333. Off by default")
+    run.add_argument("--skip-wikidata", action="store_true", help=argparse.SUPPRESS)
     run.add_argument("--limit", type=int, help="Debug cap. Omit this on an official run")
     run.set_defaults(func=run_batch)
 
@@ -264,14 +302,19 @@ def build_parser() -> argparse.ArgumentParser:
     view.add_argument("--input", required=True)
     view.add_argument("--host", default="127.0.0.1")
     view.add_argument("--port", type=int, default=8765)
+    view.add_argument("--static", help="Write a standalone HTML file and exit")
     view.set_defaults(func=_view)
 
     return parser
 
 
 def _view(args: argparse.Namespace) -> int:
-    from .view import serve
+    from .view import serve, write_static
 
+    if args.static:
+        count = write_static(Path(args.input), Path(args.static))
+        print(f"Wrote {args.static} ({count} profiles)")
+        return 0
     serve(Path(args.input), args.host, args.port)
     return 0
 

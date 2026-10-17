@@ -223,6 +223,88 @@ class Viewer:
         return 404, _page("Not found", "<h1>Not found</h1>"), "text/html; charset=utf-8"
 
 
+def _static_card(envelope: dict[str, Any]) -> str:
+    org = str(envelope.get("organisation_number") or "")
+    name = _name(envelope)
+    industry = _value(envelope, "industry") or {}
+    municipality = _value(envelope, "municipality") or {}
+    employees = _value(envelope, "employee_count")
+    website = _value(envelope, "official_website")
+    jobs = _value(envelope, "job_postings") or {}
+    news = _value(envelope, "public_news") or {}
+    summary = (envelope.get("synthesis") or {}).get("summary") or ""
+    industry_label = industry.get("label") if isinstance(industry, dict) else ""
+    place = municipality.get("name") if isinstance(municipality, dict) else ""
+    employee_text = f"{employees} employees" if employees is not None else "employee count not published"
+    site_text = "verified website" if website else "no verified website"
+    job_count = len((jobs.get("postings") or [])) if isinstance(jobs, dict) else 0
+    news_count = len((news.get("items") or [])) if isinstance(news, dict) else 0
+    facts = " · ".join(part for part in (place, industry_label, employee_text, site_text, f"{job_count} NAV ads" if job_count else "", f"{news_count} news" if news_count else "") if part)
+    return f"""<article class="card" data-text="{_esc(' '.join([org, name, facts]).casefold())}">
+<h2>{_esc(name)}</h2>
+<p class="meta">{_esc(org)} · {_esc(facts)}</p>
+<p>{_esc(summary)}</p>
+<p><a href="https://virksomhet.brreg.no/nb/oppslag/enheter/{_esc(org)}">Brønnøysund record</a></p>
+</article>"""
+
+
+def render_static(envelopes: list[dict[str, Any]]) -> str:
+    cards = "\n".join(_static_card(item) for item in envelopes)
+    verified = sum(1 for item in envelopes if _value(item, "official_website"))
+    jobs = sum(1 for item in envelopes if _value(item, "job_postings"))
+    news = sum(1 for item in envelopes if _value(item, "public_news"))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signalpost companies</title>
+<style>
+:root {{ color-scheme: light; --ink:#1c1915; --muted:#5c564c; --line:#e4dccb; --paper:#f6f1e7; --card:#fffdf8; --green:#0f6e56; }}
+* {{ box-sizing: border-box; }}
+body {{ margin:0; font:16px/1.45 Georgia, serif; color:var(--ink); background:var(--paper); }}
+header {{ padding:1rem; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; }}
+h1 {{ font-size:1.25rem; margin:0; }}
+main {{ padding:1rem; max-width:720px; margin:0 auto; }}
+input {{ font:inherit; width:100%; padding:.7rem; border:1px solid var(--line); border-radius:10px; margin-top:.7rem; }}
+.stats {{ color:var(--muted); font-size:.92rem; margin:.4rem 0 0; }}
+.card {{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:.9rem 1rem; margin:.75rem 0; }}
+.card h2 {{ font-size:1.05rem; margin:0 0 .25rem; }}
+.meta {{ color:var(--muted); font-size:.92rem; margin:0 0 .5rem; }}
+a {{ color:var(--green); }}
+</style>
+</head>
+<body>
+<header>
+<h1>Signalpost</h1>
+<p class="stats">{len(envelopes)} profiles · {verified} verified websites · {jobs} with NAV ads · {news} with dated news</p>
+<input id="q" type="search" placeholder="Search name, place, industry, or organisation number" aria-label="Search companies">
+</header>
+<main id="list">
+{cards}
+</main>
+<script>
+const input = document.getElementById("q");
+const cards = Array.from(document.querySelectorAll(".card"));
+input.addEventListener("input", () => {{
+  const needle = input.value.trim().toLowerCase();
+  for (const card of cards) {{
+    card.hidden = needle.length > 0 && !card.dataset.text.includes(needle);
+  }}
+}});
+</script>
+</body>
+</html>
+"""
+
+
+def write_static(source: Path, destination: Path) -> int:
+    envelopes = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(render_static(envelopes), encoding="utf-8")
+    return len(envelopes)
+
+
 def serve(path: Path, host: str, port: int) -> None:
     envelopes = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     viewer = Viewer(envelopes)
