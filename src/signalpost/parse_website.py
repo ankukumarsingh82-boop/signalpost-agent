@@ -1,8 +1,8 @@
 """Extract identity proof and company-owned links from a fetched page.
 
-A page is verified when it contains the organisation number, or the legal name
-together with the registered postcode, or the registered telephone number.
-Links are returned only for a verified page.
+A page is verified when it contains the organisation number, the legal name
+together with the registered postcode, the registered telephone number, or a
+distinctive token from the legal name. Links are returned only for a verified page.
 """
 
 from __future__ import annotations
@@ -29,6 +29,54 @@ NEWS_HINTS = ("nyhet", "news", "press", "aktuelt", "blog")
 
 
 LEGAL_FORMS = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti", "iks", "fkf", "sf", "hf", "rhf"}
+# Short or generic tokens must not be enough to claim a register website.
+GENERIC_NAME_TOKENS = LEGAL_FORMS | {
+    "ab",
+    "and",
+    "av",
+    "bergen",
+    "bil",
+    "bolig",
+    "bygg",
+    "co",
+    "company",
+    "consult",
+    "consulting",
+    "digital",
+    "drift",
+    "eiendom",
+    "elektro",
+    "first",
+    "for",
+    "glass",
+    "group",
+    "gruppen",
+    "holding",
+    "hus",
+    "international",
+    "invest",
+    "ltd",
+    "management",
+    "media",
+    "nordic",
+    "norge",
+    "norsk",
+    "norske",
+    "norway",
+    "og",
+    "online",
+    "oslo",
+    "partner",
+    "partners",
+    "sameie",
+    "service",
+    "services",
+    "solutions",
+    "stavanger",
+    "stiftelse",
+    "the",
+    "trondheim",
+}
 _ORG_WEIGHTS = (3, 2, 7, 6, 5, 4, 3, 2)
 
 
@@ -97,6 +145,23 @@ def phone_in_text(phone: str | None, text: str) -> bool:
     return re.search(rf"(?<!\d){spaced}(?!\d)", text) is not None
 
 
+def distinctive_name_token(legal_name: str | None, text: str) -> str | None:
+    """A name token long enough, and uncommon enough, to tie a page to this company."""
+    if not legal_name:
+        return None
+    page_tokens = set(_tokens(text))
+    candidates = [
+        token
+        for token in _tokens(legal_name)
+        if len(token) >= 5 and token not in GENERIC_NAME_TOKENS and not token.isdigit()
+    ]
+    candidates.sort(key=len, reverse=True)
+    for token in candidates:
+        if token in page_tokens:
+            return token
+    return None
+
+
 def foreign_organisation_number(text: str, org: str) -> bool:
     """True when the page labels a different valid organisation number as its own."""
     for match in re.finditer(r"(?<!\d)(\d{9})(?!\d)", text):
@@ -128,6 +193,9 @@ def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: 
         return "name_and_postcode", f"{legal_name} {postal_code}"[:240]
     if telephone and phone_in_text(telephone, text):
         return "telephone", "registered telephone"
+    token = distinctive_name_token(legal_name, text)
+    if token:
+        return "distinctive_name_token", f"{token} from {legal_name}"[:240]
     return None, ""
 
 

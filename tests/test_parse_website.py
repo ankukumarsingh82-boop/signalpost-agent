@@ -57,9 +57,18 @@ def test_name_and_postcode_verifies_without_an_organisation_number():
     assert extracted["description"]
 
 
-def test_name_without_postcode_does_not_verify():
+def test_distinctive_name_without_postcode_verifies_a_register_host():
     html = "<html><body><p>BERGESAG AS welcomes visitors.</p></body></html>"
     extracted = extract_page(html, ORG, "https://bergesag.no/", legal_name="BERGESAG AS", postal_code="5760")
+    assert extracted["verified"] is True
+    assert extracted["method"] == "distinctive_name_token"
+    assert "bergesag" in str(extracted["claim_span"])
+    assert extracted["social_links"] == []
+
+
+def test_short_name_without_postcode_does_not_verify():
+    html = "<html><body><p>ABA AS welcomes visitors.</p></body></html>"
+    extracted = extract_page(html, ORG, "https://example.no/", legal_name="ABA AS", postal_code="5760")
     assert extracted["verified"] is False
     assert extracted["social_links"] == []
 
@@ -78,6 +87,20 @@ def test_foreign_organisation_number_blocks_name_match():
     assert extracted["verified"] is False
     assert legal_name_in_text("BERGESAG AS", "BERGESAG AS")
     assert postcode_in_text("5760", "5760 Roldal")
+
+
+def test_distinctive_name_token_accepts_a_unique_register_host():
+    html = "<html><body><h1>Vier Arkitekter</h1><p>Kontor i Drammen.</p></body></html>"
+    extracted = extract_page(html, ORG, "https://vierarkitekter.no/", legal_name="VIER ARKITEKTER AS")
+    assert extracted["verified"] is True
+    assert extracted["method"] == "distinctive_name_token"
+    assert "arkitekter" in str(extracted["claim_span"])
+
+
+def test_generic_token_does_not_accept_a_register_host():
+    html = "<html><body><p>Velkommen til Norge og vår service.</p></body></html>"
+    extracted = extract_page(html, ORG, "https://example.no/", legal_name="SERVICE NORGE AS")
+    assert extracted["verified"] is False
 
 
 def test_robots_disallow_root_blocks_homepage_only():

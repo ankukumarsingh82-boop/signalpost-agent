@@ -348,7 +348,7 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
     if not verified_pages:
         return _empty_website(
             "ambiguous",
-            "The registered site did not show this organisation number, or the legal name with the registered postcode, or the registered phone. It is not published as the official site.",
+            "The registered site did not show this organisation number, the legal name with the postcode, the registered phone, or a distinctive part of the company name. It is not published.",
             registry_url=listed,
             page_state="ambiguous",
             hit=_hit(fetched),
@@ -384,6 +384,7 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
         "organisation_number": "The page contains this organisation number.",
         "name_and_postcode": "The page contains the legal name and the registered postcode.",
         "telephone": "The page contains the telephone number recorded in the entity register.",
+        "distinctive_name_token": "The register host loaded on the same domain and the page contains a distinctive part of the company name.",
     }
     return {
         "availability": "available",

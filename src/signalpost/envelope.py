@@ -533,7 +533,7 @@ def _add_website(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
             builder.add_claim(field, None, "not_available" if follow in {"ambiguous", "blocked", "not_available"} else follow, page_ids, confidence=0.0, note="Not published without a verified company page.")
         return
     method = module.get("verification_method") or "organisation_number"
-    confidence = {"organisation_number": 0.95, "name_and_postcode": 0.86, "telephone": 0.8}.get(method, 0.8)
+    confidence = {"organisation_number": 0.95, "name_and_postcode": 0.86, "telephone": 0.8, "distinctive_name_token": 0.74}.get(method, 0.74)
     builder.add_claim(
         "official_website",
         module.get("final_url"),
