@@ -181,7 +181,7 @@ def build_envelope(org: str, research: dict[str, Any], run: dict[str, Any]) -> d
                 "not_available",
                 entity_ids,
                 confidence=0.99,
-                note="The entity register has not published an employee count. This is not zero.",
+                note="The entity register has not published an employee count. Brønnøysund hides the 0–4 employee band, so this is not zero.",
             )
         else:
             _maybe(builder, "employee_count", parsed.get("employees"), entity_ids, confidence=0.99)

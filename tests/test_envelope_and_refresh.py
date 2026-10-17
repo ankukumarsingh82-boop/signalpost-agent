@@ -86,9 +86,12 @@ def test_envelope_contract_and_missing_fields_are_not_zero():
     assert by_field["registered_workplaces"]["value"]["total"] == 0
     assert by_field["accounts.SELSKAP.2024.revenue"]["value"]["amount"] == 1000
     assert "debt" not in {claim["field"].rsplit(".", 1)[-1] for claim in envelope["claims"] if claim["field"].startswith("accounts.")}
-    assert "11" in envelope["synthesis"]["summary"]
-    assert "1,000 NOK" in envelope["synthesis"]["summary"]
-    assert "debt 0" not in envelope["synthesis"]["summary"].lower()
+    summary = envelope["synthesis"]["summary"]
+    assert summary.startswith("SANDNES ELEKTRISKE AS: Utføre elektriske installasjoner.")
+    assert summary.index("elektriske") < summary.index("Gata")
+    assert "11" in summary
+    assert "1,000 NOK" in summary
+    assert "debt 0" not in summary.lower()
 
 
 def test_refresh_is_idempotent_until_a_value_changes():
@@ -172,6 +175,25 @@ def test_accounts_trend_uses_company_figures_only():
     summary = envelope["synthesis"]["summary"]
     assert "revenue 800 NOK in 2023 and 1,000 NOK in 2024 (up)" in summary
     assert "annual result 50 NOK in 2023 and 100 NOK in 2024 (up)" in summary
+
+
+def test_large_nok_amounts_are_written_as_mnok_and_hidden_employee_band_is_not_zero():
+    research = _research()
+    research["entity"]["parsed"]["employees_registered"] = False
+    research["entity"]["parsed"]["employees"] = None
+    research["accounts"]["parsed"]["records"][0]["figures"]["revenue"] = {
+        "amount": 2_500_000,
+        "currency": "NOK",
+        "period_to": "2024-12-31",
+    }
+    envelope = build_envelope("810034882", research, RUN)
+    summary = envelope["synthesis"]["summary"]
+    assert "2.5 MNOK" in summary
+    assert "0–4" in summary
+    assert "not zero" in summary
+    by_field = {claim["field"]: claim for claim in envelope["claims"]}
+    assert by_field["employee_count"]["value"] is None
+    assert "0–4" in by_field["employee_count"]["note"]
 
 
 def test_not_found_entity_still_emits_one_envelope():

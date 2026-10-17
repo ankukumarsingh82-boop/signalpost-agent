@@ -20,12 +20,25 @@ def _money(figure: dict[str, Any] | None) -> str | None:
     if not isinstance(figure, dict) or figure.get("amount") is None:
         return None
     amount = figure["amount"]
+    currency = str(figure.get("currency") or "")
+    if isinstance(amount, (int, float)) and not isinstance(amount, bool) and currency.upper() in {"", "NOK", "KR"}:
+        millions = float(amount) / 1_000_000
+        if abs(millions) >= 0.05:
+            return f"{millions:,.1f} MNOK"
     if isinstance(amount, float):
         rendered = f"{amount:,.0f}"
     else:
         rendered = f"{amount:,}"
-    currency = figure.get("currency") or ""
     return f"{rendered} {currency}".strip()
+
+
+def _sentence(text: str, *, limit: int = 320) -> str:
+    compact = " ".join(str(text).split())
+    if len(compact) > limit:
+        compact = compact[: limit - 1].rstrip() + "…"
+    if compact and compact[-1] not in ".!?":
+        compact += "."
+    return compact
 
 
 def _address(value: dict[str, Any] | None) -> str | None:
@@ -136,6 +149,22 @@ def synthesize(org: str, claims: list[dict[str, Any]], changes: list[dict[str, A
     status = _available(by, "organisation_status") or {}
 
     sentences: list[str] = []
+    if purpose:
+        text = purpose[0] if isinstance(purpose, list) else str(purpose)
+        sentences.append(f"{name}: {_sentence(text)}")
+    elif activity:
+        text = activity[0] if isinstance(activity, list) else str(activity)
+        sentences.append(f"{name}: {_sentence(text)}")
+    elif isinstance(industry, dict) and industry.get("label"):
+        code = industry.get("code") or "not stated"
+        sentences.append(f"{name} operates in {industry['label']} (NACE {code}).")
+    elif page_verified is True and description:
+        sentences.append(f"{name}: {_sentence(str(description), limit=280)}")
+    elif wiki:
+        sentences.append(f"{name}: {_sentence(str(wiki))}")
+    else:
+        sentences.append(f"{name} is a Norwegian organisation (organisation number {org}).")
+
     identity = f"{name} (organisation number {org})"
     if isinstance(legal_form, dict) and legal_form.get("label"):
         identity += f" is registered as {legal_form['label']}"
@@ -147,31 +176,21 @@ def synthesize(org: str, claims: list[dict[str, Any]], changes: list[dict[str, A
         identity += f", with registered business address {address}"
     sentences.append(identity + ".")
 
-    if isinstance(industry, dict) and (industry.get("label") or industry.get("code")):
+    if isinstance(industry, dict) and (industry.get("label") or industry.get("code")) and not (
+        sentences and sentences[0].startswith(f"{name} operates in")
+    ):
         sentences.append(
             f"The register classifies the industry as {industry.get('label') or 'unspecified'} (NACE {industry.get('code') or 'not stated'})."
         )
-    if purpose:
-        text = purpose[0] if isinstance(purpose, list) else str(purpose)
-        text = text[:400].rstrip()
-        if text and text[-1] not in ".!?":
-            text += "."
-        sentences.append(f"The registered statutory purpose says: {text}")
-    elif activity:
-        text = activity[0] if isinstance(activity, list) else str(activity)
-        text = text[:400].rstrip()
-        if text and text[-1] not in ".!?":
-            text += "."
-        sentences.append(f"The register describes the activity as: {text}")
-    elif wiki:
-        sentences.append(f"A Wikidata item carrying this organisation number describes it as: {str(wiki)[:400]}")
 
     if page_verified is True and description:
         sentences.append(f"Its website describes the business as: {str(description)[:300]}")
     if employees is not None:
         sentences.append(f"The register records {employees} employees.")
     else:
-        sentences.append("The entity register has not published an employee count.")
+        sentences.append(
+            "The entity register has not published an employee count. Brønnøysund hides the 0–4 employee band, so this is not zero."
+        )
     if founded:
         sentences.append(f"Founding date recorded in the register: {founded}.")
     if status.get("bankrupt") is True:
@@ -239,7 +258,9 @@ def synthesize(org: str, claims: list[dict[str, Any]], changes: list[dict[str, A
 
     unknowns: list[str] = []
     if employees is None:
-        unknowns.append("No registered employee count was published by the entity register.")
+        unknowns.append(
+            "No registered employee count was published. The register hides the 0–4 employee band, so a missing count is not zero."
+        )
     if not isinstance(latest, dict):
         unknowns.append("No normalized annual-account figures were returned. Missing figures are not treated as zero.")
     if not leaders:
