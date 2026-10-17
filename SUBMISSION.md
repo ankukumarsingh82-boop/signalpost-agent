@@ -10,7 +10,7 @@ Please score this Signalpost entry.
 - Agent name: signalpost
 - Repository: https://github.com/ankukumarsingh82-boop/signalpost-agent
 - Branch: cursor/signalpost-agent-65eb
-- Commit: b8b4f36adeb247dd9a4f9aededc91fd02a2ed1bc
+- Commit: 03c5645649a985e8f1c2bdafc0e874821380fb3d
 - Contact: ankukumarsingh82@gmail.com
 
 One run command, from a clean clone, with Python 3.11+ and no API key. Replace the input path with the official batch:
@@ -23,7 +23,7 @@ Install step: none. The standard library is enough. Tests, if wanted: `python3 -
 
 A local viewer that opens without a server: `outputs/viewer.html`. Or `PYTHONPATH=src python3 -m signalpost view --input outputs/envelopes.jsonl --static outputs/viewer.html`.
 
-Smoke test: `outputs/smoke-100.jsonl` and `outputs/smoke-100-report.json` (100 organisation numbers from `data/sample-100.txt`, one envelope each). A 1,000-company local run is in `outputs/envelopes.jsonl` with `outputs/run-report.json`. Those files are a local check. Please score the agent on the batch you supply.
+Smoke test: `outputs/smoke-100.jsonl` and `outputs/smoke-100-report.json` (the first 100 envelopes from the 1,000-company run). That run is in `outputs/envelopes.jsonl` with `outputs/run-report.json`, produced by commit 03c5645649a985e8f1c2bdafc0e874821380fb3d. Those files are a local check. Please score the agent on the batch you supply.
 
 Models: none. Summaries are a template over the published claims.
 
