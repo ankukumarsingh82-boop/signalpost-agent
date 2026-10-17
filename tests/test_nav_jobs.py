@@ -110,6 +110,15 @@ def test_different_parent_is_not_published():
     assert "postings" not in result
 
 
+def test_detail_fetches_stop_when_the_company_budget_is_spent():
+    detail = "https://pam-stilling-feed.nav.no/api/v1/feedentry/abc"
+    client = _Client({detail: _fetch(detail, {"status": "ACTIVE", "uuid": "abc", "ad_content": {"employer": {"orgnr": "1"}}})})
+    catalog = {"by_name": {"parent as": [{"uuid": "abc", "detail_url": detail}]}, "token": None}
+    result = match_nav_jobs(client, lambda fetch: fetch, catalog, "810034882", {"name": "Parent AS"}, deadline=0)
+    assert result["availability"] == "not_available"
+    assert client.calls == []
+
+
 def test_candidate_stubs_prefers_the_legal_name_and_dedupes():
     catalog = {
         "by_name": {

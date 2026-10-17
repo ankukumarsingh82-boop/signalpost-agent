@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from email.utils import formatdate
 from typing import Any, Callable
@@ -238,6 +239,7 @@ def match_nav_jobs(
     org: str,
     parsed: dict[str, Any] | None,
     workplaces: dict[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         return {"availability": "not_available", "note": "NAV feed was not scanned in this run.", "errors": []}
@@ -271,6 +273,9 @@ def match_nav_jobs(
         return _cached_parent(client, track, catalog, subunit_org)
 
     for stub in stubs:
+        if deadline is not None and time.monotonic() >= deadline:
+            errors.append({"url": FEED_URL, "status": None, "error": "company_time_budget"})
+            break
         fetched = track(client.get_json(stub["detail_url"], headers=headers, timeout=15, max_bytes=1_500_000, public_only=True))
         if not fetched.ok or not isinstance(fetched.json_body, dict):
             errors.append({"url": stub["detail_url"], "status": fetched.status, "error": fetched.error or "nav_detail_failed"})

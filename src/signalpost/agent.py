@@ -75,6 +75,7 @@ def research_company(
     nav_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
+    deadline = started + 22
     requests = 0
     errors: list[dict[str, Any]] = []
 
@@ -163,10 +164,17 @@ def research_company(
         workplaces = {"availability": "not_available", "hit": _hit(entity_fetch), "note": "Entity was not found, so workplaces were not requested."}
         group = {"availability": "not_available", "hit": _hit(entity_fetch), "note": "Entity was not found, so group structure was not requested."}
 
-    website = _research_website(client, track, parsed, skip_website=skip_website)
+    website = _research_website(client, track, parsed, skip_website=skip_website, deadline=deadline)
     errors.extend(item for item in (website.get("errors") or []) if item.get("error") in {"shared_domain", "directory_host", "invalid_host", "cross_domain_or_directory_redirect"} or str(item.get("error") or "").startswith("blocked_url"))
-    jobs = match_nav_jobs(client, track, nav_catalog, org, parsed, workplaces)
-    news = research_news(client, track, parsed, skip=skip_news)
+    jobs = match_nav_jobs(client, track, nav_catalog, org, parsed, workplaces, deadline=deadline)
+    if time.monotonic() >= deadline:
+        news = {
+            "availability": "not_available",
+            "note": "News lookup was skipped because this company reached the 22 second time budget.",
+            "errors": [],
+        }
+    else:
+        news = research_news(client, track, parsed, skip=skip_news)
     wiki = _research_wiki(client, track, wiki_row, entity_state)
 
     research = {
@@ -308,7 +316,14 @@ def re_hrefs(html: str) -> list[str]:
     return re.findall(r"""href=["']([^"'#]+)""", html, flags=re.IGNORECASE)
 
 
-def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | None, *, skip_website: bool) -> dict[str, Any]:
+def _research_website(
+    client: HttpClient,
+    track: Any,
+    parsed: dict[str, Any] | None,
+    *,
+    skip_website: bool,
+    deadline: float | None = None,
+) -> dict[str, Any]:
     """Publish official_website only after the page proves it is this company."""
     if parsed is None:
         return _empty_website("not_available", "No confirmed entity, so no website was fetched.")
@@ -386,7 +401,7 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
     home = extract_page(fetched.text, org, final_url, **identity)
     pages.append((fetched, home))
     candidates = _candidate_pages(fetched.text, final_url)
-    if not home.get("verified"):
+    if not home.get("verified") and (deadline is None or time.monotonic() < deadline):
         origin = urlsplit(final_url)
         sitemap_url = f"{origin.scheme}://{origin.netloc}/sitemap.xml"
         sitemap = track(client.get_text(sitemap_url, timeout=6, max_bytes=400_000, public_only=True, retries=0))
@@ -395,6 +410,8 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
                 if loc not in candidates:
                     candidates.insert(0, loc)
     for candidate in candidates[:6]:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         extra = track(client.get_text(candidate, timeout=6, max_bytes=500_000, public_only=True, retries=0))
         if extra.status != 200 or not extra.text:
             continue

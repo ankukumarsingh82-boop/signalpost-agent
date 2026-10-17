@@ -259,7 +259,27 @@ def _static_card(envelope: dict[str, Any]) -> str:
     if isinstance(figures, dict) and isinstance(figures.get("revenue"), dict) and figures["revenue"].get("amount") is not None:
         amount = figures["revenue"]["amount"]
         currency = figures["revenue"].get("currency") or latest.get("currency") or ""
-        revenue = f"Latest revenue {amount:,} {currency} ({latest.get('period_to') or 'undated'})".strip()
+        if isinstance(amount, (int, float)) and not isinstance(amount, bool) and str(currency).upper() in {"", "NOK", "KR"} and abs(amount) >= 50_000:
+            revenue = f"Latest revenue {amount / 1_000_000:,.1f} MNOK ({latest.get('period_to') or 'undated'})"
+        else:
+            revenue = f"Latest revenue {amount:,} {currency} ({latest.get('period_to') or 'undated'})".strip()
+    evidence = {item.get("id"): item for item in envelope.get("evidence") or []}
+    source_links = []
+    seen_urls: set[str] = set()
+    for claim in envelope.get("claims") or []:
+        if claim.get("availability") != "available" or claim.get("field") == "synthesis":
+            continue
+        for evidence_id in claim.get("evidence_ids") or []:
+            item = evidence.get(evidence_id) or {}
+            url = item.get("source_url")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            source_links.append(f'<li><a href="{_esc(url)}">{_esc(claim.get("field"))}</a></li>')
+            break
+        if len(source_links) >= 6:
+            break
+    sources_html = f'<details><summary>Sources</summary><ul>{"".join(source_links)}</ul></details>' if source_links else ""
     site_link = f'<a href="{_esc(website)}">Verified website</a>' if website else "No verified website"
     news_html = ""
     if articles:
@@ -280,13 +300,14 @@ def _static_card(envelope: dict[str, Any]) -> str:
         flags.append("news")
     if postings:
         flags.append("jobs")
-    return f"""<article class="card" data-text="{_esc(' '.join([org, name, facts, summary]).casefold())}" data-flags="{' '.join(flags)}">
+    return f"""<article class="card" data-org="{_esc(org)}" data-text="{_esc(' '.join([org, name, facts, summary]).casefold())}" data-flags="{' '.join(flags)}">
 <h2>{_esc(name)}</h2>
 <p class="meta">{_esc(org)} · {_esc(facts)}</p>
 <p>{_esc(summary)}</p>
 <p class="meta">{_esc(revenue) if revenue else "No revenue figure in the latest company accounts."}</p>
 <p>{site_link} · <a href="https://virksomhet.brreg.no/nb/oppslag/enheter/{_esc(org)}">Brønnøysund record</a></p>
-{news_html}{job_html}{unknown_html}
+<p><button type="button" class="pin" data-org="{_esc(org)}">Compare</button></p>
+{news_html}{job_html}{sources_html}{unknown_html}
 </article>"""
 
 
@@ -311,8 +332,10 @@ main {{ padding:1rem; max-width:720px; margin:0 auto; }}
 input {{ font:inherit; width:100%; padding:.7rem; border:1px solid var(--line); border-radius:10px; margin-top:.7rem; }}
 .stats {{ color:var(--muted); font-size:.92rem; margin:.4rem 0 0; }}
 .filters {{ display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.7rem; }}
-.filters button {{ font:inherit; background:white; color:var(--ink); border:1px solid var(--line); border-radius:999px; padding:.35rem .7rem; }}
-.filters button[aria-pressed="true"] {{ background:var(--green); color:white; border-color:var(--green); }}
+.filters button, .pin {{ font:inherit; background:white; color:var(--ink); border:1px solid var(--line); border-radius:999px; padding:.35rem .7rem; }}
+.filters button[aria-pressed="true"], .pin[aria-pressed="true"] {{ background:var(--green); color:white; border-color:var(--green); }}
+#compare {{ display:grid; gap:.75rem; }}
+@media (min-width: 800px) {{ #compare {{ grid-template-columns: 1fr 1fr; }} }}
 .card {{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:.9rem 1rem; margin:.75rem 0; }}
 .card h2 {{ font-size:1.05rem; margin:0 0 .25rem; }}
 .meta {{ color:var(--muted); font-size:.92rem; margin:0 0 .5rem; }}
@@ -333,13 +356,16 @@ ul {{ margin:.3rem 0 .3rem 1.1rem; padding:0; }}
 <button type="button" data-flag="jobs" aria-pressed="false">NAV ads</button>
 </div>
 </header>
+<section id="compare" hidden></section>
 <main id="list">
 {cards}
 </main>
 <script>
 const input = document.getElementById("q");
-const cards = Array.from(document.querySelectorAll(".card"));
+const cards = Array.from(document.querySelectorAll("#list .card"));
+const compare = document.getElementById("compare");
 let flag = "";
+const pinned = [];
 function apply() {{
   const needle = input.value.trim().toLowerCase();
   for (const card of cards) {{
@@ -348,12 +374,35 @@ function apply() {{
     card.hidden = !(textOk && flagOk);
   }}
 }}
+function renderCompare() {{
+  compare.innerHTML = "";
+  compare.hidden = pinned.length === 0;
+  for (const org of pinned) {{
+    const card = document.querySelector('#list .card[data-org="' + org + '"]');
+    if (card) compare.appendChild(card.cloneNode(true));
+  }}
+}}
 input.addEventListener("input", apply);
 for (const button of document.querySelectorAll(".filters button")) {{
   button.addEventListener("click", () => {{
     flag = button.dataset.flag;
     for (const other of document.querySelectorAll(".filters button")) other.setAttribute("aria-pressed", other === button ? "true" : "false");
     apply();
+  }});
+}}
+for (const button of document.querySelectorAll("#list .pin")) {{
+  button.addEventListener("click", () => {{
+    const org = button.dataset.org;
+    const index = pinned.indexOf(org);
+    if (index >= 0) pinned.splice(index, 1);
+    else {{
+      if (pinned.length >= 2) pinned.shift();
+      pinned.push(org);
+    }}
+    for (const other of document.querySelectorAll("#list .pin")) {{
+      other.setAttribute("aria-pressed", pinned.includes(other.dataset.org) ? "true" : "false");
+    }}
+    renderCompare();
   }});
 }}
 </script>
