@@ -609,7 +609,7 @@ def _add_jobs(builder: EnvelopeBuilder, module: dict[str, Any]) -> None:
         "available",
         evidence_ids,
         confidence=0.95,
-        note=module.get("note") or "employer.orgnr matched this organisation number.",
+        note=module.get("note") or "employer.orgnr is this organisation or one of its sub-units.",
     )
 
 

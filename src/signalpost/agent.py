@@ -165,7 +165,7 @@ def research_company(
 
     website = _research_website(client, track, parsed, skip_website=skip_website)
     errors.extend(item for item in (website.get("errors") or []) if item.get("error") in {"shared_domain", "directory_host", "invalid_host", "cross_domain_or_directory_redirect"} or str(item.get("error") or "").startswith("blocked_url"))
-    jobs = match_nav_jobs(client, track, nav_catalog, org, parsed)
+    jobs = match_nav_jobs(client, track, nav_catalog, org, parsed, workplaces)
     news = research_news(client, track, parsed, skip=skip_news)
     wiki = _research_wiki(client, track, wiki_row, entity_state)
 

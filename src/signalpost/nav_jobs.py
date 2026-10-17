@@ -10,15 +10,18 @@ in this feed.
 from __future__ import annotations
 
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from email.utils import formatdate
-from typing import Any
+from typing import Any, Callable
 
 from .http_client import HttpClient
 
 FEED_ORIGIN = "https://pam-stilling-feed.nav.no"
 PUBLIC_TOKEN_URL = FEED_ORIGIN + "/api/publicToken"
 FEED_URL = FEED_ORIGIN + "/api/v1/feed"
+UNDERENHET_URL = "https://data.brreg.no/enhetsregisteret/api/underenheter/{org}"
+_parent_lock = threading.Lock()
 
 
 def normalize_name(value: str | None) -> str:
@@ -45,8 +48,9 @@ def build_nav_catalog(client: HttpClient, *, days: int = 30, max_pages: int = 22
     """Walk recent feed pages and index active ads by employer name.
 
     The list payload has no organisation number. Detail fetches happen later,
-    and only for names that match a researched company. A posting is published
-    only when the detail's employer.orgnr equals that company.
+    and only for names that match a researched company or one of its workplaces.
+    A posting is published only when employer.orgnr is the company, a workplace
+    already listed for that company, or a sub-unit whose overordnetEnhet is the company.
     """
     token_fetch = client.get_text(PUBLIC_TOKEN_URL, timeout=20, max_bytes=20_000, public_only=True)
     token = _token(token_fetch.text)
@@ -144,12 +148,96 @@ def _public_url(ad: dict[str, Any], uuid: str) -> str:
     return f"https://arbeidsplassen.nav.no/stillinger/stilling/{uuid}"
 
 
+def workplace_names(workplaces: dict[str, Any] | None) -> list[str]:
+    parsed = (workplaces or {}).get("parsed") if isinstance(workplaces, dict) else None
+    rows = parsed.get("workplaces") if isinstance(parsed, dict) else None
+    names: list[str] = []
+    for row in rows or []:
+        if isinstance(row, dict) and isinstance(row.get("name"), str) and row["name"].strip():
+            names.append(row["name"].strip())
+    return names
+
+
+def known_subunit_orgnrs(workplaces: dict[str, Any] | None) -> set[str]:
+    parsed = (workplaces or {}).get("parsed") if isinstance(workplaces, dict) else None
+    rows = parsed.get("workplaces") if isinstance(parsed, dict) else None
+    found: set[str] = set()
+    for row in rows or []:
+        if isinstance(row, dict):
+            digits = _digits(row.get("organisation_number"))
+            if len(digits) == 9:
+                found.add(digits)
+    return found
+
+
+def candidate_stubs(catalog: dict[str, Any], names: list[str], *, limit: int = 20) -> list[dict[str, str]]:
+    by_name = catalog.get("by_name") or {}
+    chosen: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for name in names:
+        key = normalize_name(name)
+        if not key:
+            continue
+        for stub in by_name.get(key) or []:
+            uuid = str(stub.get("uuid") or "")
+            if not uuid or uuid in seen:
+                continue
+            seen.add(uuid)
+            chosen.append(stub)
+            if len(chosen) >= limit:
+                return chosen
+    return chosen
+
+
+def employer_match(employer_org: str, company_org: str, subunits: set[str], parent_of: Callable[[str], str | None]) -> str | None:
+    """Return how an ad employer belongs to the company, or None."""
+    employer = _digits(employer_org)
+    company = _digits(company_org)
+    if len(employer) != 9 or len(company) != 9:
+        return None
+    if employer == company:
+        return "parent"
+    if employer in subunits:
+        return "known_subunit"
+    parent = _digits(parent_of(employer))
+    if parent == company:
+        return "overordnet_enhet"
+    return None
+
+
+def _cached_parent(client: HttpClient, track: Any, catalog: dict[str, Any], subunit_org: str) -> str | None:
+    with _parent_lock:
+        cache = catalog.get("_subunit_parents")
+        if cache is None:
+            cache = {}
+            catalog["_subunit_parents"] = cache
+        if subunit_org in cache:
+            return cache[subunit_org]
+    fetched = track(
+        client.get_json(
+            UNDERENHET_URL.format(org=subunit_org),
+            timeout=12,
+            max_bytes=400_000,
+            public_only=True,
+            retries=1,
+        )
+    )
+    parent = None
+    if fetched.ok and isinstance(fetched.json_body, dict):
+        parent = _digits(fetched.json_body.get("overordnetEnhet")) or None
+    if fetched.ok or fetched.status in {404, 410}:
+        with _parent_lock:
+            cache[subunit_org] = parent
+    return parent
+
+
 def match_nav_jobs(
     client: HttpClient,
     track: Any,
     catalog: dict[str, Any] | None,
     org: str,
     parsed: dict[str, Any] | None,
+    workplaces: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if catalog is None:
         return {"availability": "not_available", "note": "NAV feed was not scanned in this run.", "errors": []}
@@ -161,12 +249,14 @@ def match_nav_jobs(
         }
     if not parsed or not parsed.get("name"):
         return {"availability": "not_available", "note": "No confirmed legal name, so job ads were not matched.", "errors": []}
-    stubs = (catalog.get("by_name") or {}).get(normalize_name(parsed.get("name"))) or []
+    names = [str(parsed.get("name"))] + workplace_names(workplaces)
+    stubs = candidate_stubs(catalog, names)
+    subunits = known_subunit_orgnrs(workplaces)
     note = catalog.get("note") or "NAV feed scanned."
     if not stubs:
         return {
             "availability": "not_available",
-            "note": f"No active ad in the scanned feed used this legal name. {note}",
+            "note": f"No active ad in the scanned feed used this legal name or a registered workplace name. {note}",
             "checked": True,
             "errors": [],
         }
@@ -176,7 +266,11 @@ def match_nav_jobs(
     hits: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for stub in stubs[:20]:
+
+    def parent_of(subunit_org: str) -> str | None:
+        return _cached_parent(client, track, catalog, subunit_org)
+
+    for stub in stubs:
         fetched = track(client.get_json(stub["detail_url"], headers=headers, timeout=15, max_bytes=1_500_000, public_only=True))
         if not fetched.ok or not isinstance(fetched.json_body, dict):
             errors.append({"url": stub["detail_url"], "status": fetched.status, "error": fetched.error or "nav_detail_failed"})
@@ -186,7 +280,9 @@ def match_nav_jobs(
             continue
         ad = detail.get("ad_content") if isinstance(detail.get("ad_content"), dict) else {}
         employer = ad.get("employer") if isinstance(ad.get("employer"), dict) else {}
-        if _digits(employer.get("orgnr")) != org:
+        employer_org = _digits(employer.get("orgnr"))
+        relation = employer_match(employer_org, org, subunits, parent_of)
+        if not relation:
             continue
         uuid = str(detail.get("uuid") or stub["uuid"])
         if uuid in seen:
@@ -204,7 +300,9 @@ def match_nav_jobs(
                 "expires_at": ad.get("expires"),
                 "municipality": municipal,
                 "url": _public_url(ad, uuid),
-                "employer_orgnr": org,
+                "employer_orgnr": employer_org,
+                "parent_orgnr": org,
+                "employer_match": relation,
             }
         )
         hits.append(
@@ -214,13 +312,13 @@ def match_nav_jobs(
                 "retrieved_at": fetched.retrieved_at,
                 "content_sha256": fetched.content_sha256,
                 "error": None,
-                "span": f"{title} employer.orgnr {org}",
+                "span": f"{title} employer.orgnr {employer_org} ({relation} of {org})",
             }
         )
     if not matches:
         return {
             "availability": "not_available",
-            "note": f"Feed name candidates did not carry organisation number {org}. {note}",
+            "note": f"Feed name candidates were not this organisation or a sub-unit of it. {note}",
             "checked": True,
             "errors": errors,
         }
@@ -229,8 +327,11 @@ def match_nav_jobs(
         "availability": "available",
         "postings": published,
         "matched_count": len(matches),
-        "truncated": len(matches) > 15 or len(stubs) >= 25,
+        "truncated": len(matches) > 15 or len(stubs) >= 20,
         "hits": hits[:15],
-        "note": f"Active ads whose employer.orgnr equals this organisation number. {note} Contact details were not stored.",
+        "note": (
+            f"Active ads whose employer organisation number is this company or one of its sub-units. {note} "
+            "Contact details were not stored."
+        ),
         "errors": errors,
     }
