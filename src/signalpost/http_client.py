@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, build_opener
 
 USER_AGENT = "SignalpostResearch/1.0 (public-registry research; +https://builderr.ai/challenges/signalpost)"
@@ -83,6 +83,32 @@ def assert_public_http_url(url: str) -> None:
             raise UnsafeUrl(f"{host} resolves to a non-public address")
 
 
+def ascii_url(url: str) -> str:
+    """Percent-encode non-ASCII paths so urllib can send the request line."""
+    try:
+        url.encode("ascii")
+        return url
+    except UnicodeEncodeError:
+        pass
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        host = host.encode("ascii", "ignore").decode("ascii")
+    netloc = host
+    if parts.port:
+        netloc = f"{host}:{parts.port}"
+    if parts.username:
+        auth = quote(parts.username, safe="")
+        if parts.password:
+            auth += ":" + quote(parts.password, safe="")
+        netloc = f"{auth}@{netloc}"
+    path = quote(parts.path, safe="/%:@")
+    query = quote(parts.query, safe="=&%:+?/,")
+    return urlunsplit((parts.scheme, netloc, path, query, ""))
+
+
 def normalize_website(value: str | None) -> str | None:
     if not value:
         return None
@@ -143,6 +169,10 @@ class HttpClient:
         started = time.monotonic()
         retrieved_at = utc_now()
         limit = max_bytes or self.max_bytes
+        try:
+            url = ascii_url(url)
+        except UnicodeError as exc:
+            return self._empty(url, started, retrieved_at, error=f"bad_url: {exc}")
         if public_only:
             try:
                 assert_public_http_url(url)
@@ -191,7 +221,7 @@ class HttpClient:
                 if status in {404, 410, 401, 403}:
                     return self._fetch(url, url, status, body, {}, started, retrieved_at, error=f"http_{status}", attempts=attempts)
                 last_error = f"http_{status}"
-            except (URLError, TimeoutError, socket.timeout, OSError) as exc:
+            except (URLError, TimeoutError, socket.timeout, OSError, UnicodeError) as exc:
                 last_error = str(exc)
                 status = None
             if attempt < retry_budget and status in {None, 429, 500, 502, 503, 504}:

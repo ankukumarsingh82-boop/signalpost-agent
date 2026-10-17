@@ -1,5 +1,5 @@
-Looking up Wikidata for 1000 organisation numbers...
-Wikidata matched 14 organisation numbers.
+Scanning the NAV Arbeidsplassen public feed...
+NAV index: 93 pages, 20429 active ads, since 2026-09-02.
 checkpoint 25/1000
 checkpoint 50/1000
 checkpoint 75/1000
@@ -48,20 +48,25 @@ checkpoint 1000/1000
     "annual_accounts": 998,
     "leadership": 997,
     "registered_workplaces": 1000,
-    "official_website": 112,
-    "hiring_pages": 2,
-    "wikipedia_summary": 8,
-    "wikidata_description": 13,
-    "company_profile": 13
+    "official_website": 34,
+    "registry_listed_website": 34,
+    "website_description": 24,
+    "employee_count": 135,
+    "job_postings": 0,
+    "public_news": 2,
+    "hiring_pages": 6,
+    "wikipedia_summary": 0,
+    "wikidata_description": 0,
+    "company_profile": 24
   },
   "operations": {
-    "requests": 4375,
-    "http_requests_including_shared_lookups": 4415,
-    "runtime_ms": 456758,
+    "requests": 5559,
+    "http_requests_including_shared_lookups": 5653,
+    "runtime_ms": 701496,
     "third_party_cost_usd": 0,
-    "p50_ms": 2055,
-    "p95_ms": 13272,
-    "mean_ms": 3507
+    "p50_ms": 2300,
+    "p95_ms": 22697,
+    "mean_ms": 4575
   },
   "validation": {
     "passed": true,

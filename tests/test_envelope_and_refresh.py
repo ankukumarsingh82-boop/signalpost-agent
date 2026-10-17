@@ -117,6 +117,7 @@ def test_unverified_website_is_not_published_as_official():
         "availability": "ambiguous",
         "page_state": "ambiguous",
         "verified": False,
+        "registry_url": "https://example.com",
         "note": "The registered page did not identify this company.",
         "hit": {**HIT, "url": "https://example.com", "final_url": "https://example.com"},
         "claim_span": "https://example.com",
@@ -127,8 +128,10 @@ def test_unverified_website_is_not_published_as_official():
     by_field = {claim["field"]: claim for claim in envelope["claims"]}
     assert by_field["official_website"]["availability"] == "ambiguous"
     assert by_field["official_website"]["value"] is None
+    assert by_field["registry_listed_website"]["value"] is None
+    assert by_field["registry_listed_website"]["availability"] == "ambiguous"
     assert by_field["website_page_verified"]["value"] is False
-    assert "example.com" not in envelope["synthesis"]["summary"] or "not the official website" in envelope["synthesis"]["summary"]
+    assert "example.com" not in envelope["synthesis"]["summary"]
     assert "was accepted" not in envelope["synthesis"]["summary"]
 
 
@@ -137,6 +140,7 @@ def test_shared_domain_registry_website_is_not_published():
     research["entity"]["parsed"]["registry_website"] = "https://www.obos.no/sameie"
     research["website"] = {
         "availability": "ambiguous",
+        "registry_url": "https://www.obos.no/sameie",
         "note": "Shared domain.",
         "errors": [{"url": "https://www.obos.no/sameie", "error": "shared_domain"}],
     }

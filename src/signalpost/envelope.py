@@ -194,7 +194,6 @@ def build_envelope(org: str, research: dict[str, Any], run: dict[str, Any]) -> d
         _maybe(builder, "registered_activity", parsed.get("registered_activity") or None, entity_ids, confidence=0.99)
         _maybe(builder, "historical_names", parsed.get("historical_names") or None, entity_ids, confidence=0.99)
         _maybe(builder, "telephone", parsed.get("telephone"), entity_ids, confidence=0.99)
-        _add_registry_website(builder, parsed.get("registry_website"), entity_ids)
         _maybe(builder, "in_corporate_group", parsed.get("in_corporate_group"), entity_ids, confidence=0.99)
         _maybe(
             builder,
@@ -210,7 +209,10 @@ def build_envelope(org: str, research: dict[str, Any], run: dict[str, Any]) -> d
     _add_roles(builder, research.get("roles") or {}, entity_state)
     _add_workplaces(builder, research.get("workplaces") or {}, entity_state)
     _add_group(builder, research.get("group") or {}, entity_state)
-    _add_website(builder, research.get("website") or {})
+    website_module = research.get("website") or {}
+    if parsed:
+        _add_registry_website(builder, website_module, entity_ids)
+    _add_website(builder, website_module)
     _add_jobs(builder, research.get("jobs") or {})
     _add_news(builder, research.get("news") or {})
     _add_wiki(builder, research.get("wiki") or {})
@@ -420,8 +422,14 @@ def _add_group(builder: EnvelopeBuilder, module: dict[str, Any], entity_state: s
         builder.add_claim(f"subsidiary.{sub}", subsidiary, "available", evidence_ids, confidence=0.99, as_of=subsidiary.get("as_of"))
 
 
-def _add_registry_website(builder: EnvelopeBuilder, raw: Any, entity_ids: list[str]) -> None:
+def _add_registry_website(builder: EnvelopeBuilder, module: dict[str, Any], entity_ids: list[str]) -> None:
+    """Publish the register URL only when the same site was verified.
+
+    An unverified register host is a common wrong-company fact, so the URL stays null.
+    """
+    raw = module.get("registry_url")
     normalized = normalize_website(str(raw).strip()) if raw else None
+    verified = bool(module.get("verified")) and module.get("availability") == "available"
     if not normalized:
         builder.add_claim(
             "registry_listed_website",
@@ -442,13 +450,23 @@ def _add_registry_website(builder: EnvelopeBuilder, raw: Any, entity_ids: list[s
             note="The entity register stores a website on a shared or directory domain. The URL is not published.",
         )
         return
+    if not verified:
+        builder.add_claim(
+            "registry_listed_website",
+            None,
+            "ambiguous",
+            entity_ids,
+            confidence=0.9,
+            note="The entity register stores a website that this run did not verify. The URL is not published.",
+        )
+        return
     builder.add_claim(
         "registry_listed_website",
         normalized,
         "available",
         entity_ids,
         confidence=0.9,
-        note="Company-reported website stored in the entity register. Not treated as a verified official site by itself.",
+        note="Register website, published because a page on that host identified this organisation.",
     )
 
 

@@ -82,7 +82,7 @@ No model is called. Summaries are filled from the published claims by a template
 
 Measured cost for a run: **USD 0**. There is no paid API. Declared external cost is under the USD 10 cap.
 
-Measured on 17 October 2026 for `data/sample-1000.txt` (1,000 companies, run id `sample-1000`): 1,000 envelopes, validation passed, 4,415 HTTP requests, 457 seconds wall time, p50 2.1 s and p95 13.3 s per company, third-party cost USD 0. Coverage in that file: legal name 1,000, annual accounts 998, leadership 997, registered workplaces 1,000, register-listed website 112, page-verified hiring links 2, Wikipedia summaries 8. A repeat fetch of organisation `810034882` against that file reported zero material changes.
+Measured on 17 October 2026 for `data/sample-1000.txt` (1,000 companies, run id `sample-1000`): 1,000 envelopes, validation passed, 5,653 HTTP requests, 701 seconds wall time, p50 2.3 s and p95 22.7 s per company, third-party cost USD 0. Coverage in that file: legal name 1,000, annual accounts 998, leadership 997, registered workplaces 1,000, employee count 135 (the rest are unpublished, not zero), verified official websites 34, website descriptions 24, company profile links 24, hiring pages 6, dated news items 2. NAV's public feed for 2 September 2026 onward was 93 pages and 20,429 active ads; none had `employer.orgnr` equal to a company in this sample, so job claims are `not_available` rather than guessed. Shared and unverified register websites are not published. Open `outputs/viewer.html` directly in a browser.
 
 The annual-account copy-year endpoint (`/regnskap/aarsregnskap/kopi/{org}/aar`) is not called. It is rate limited, and the accounts endpoint already returns the recent company and group filings.
 

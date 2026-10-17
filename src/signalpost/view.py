@@ -232,19 +232,61 @@ def _static_card(envelope: dict[str, Any]) -> str:
     website = _value(envelope, "official_website")
     jobs = _value(envelope, "job_postings") or {}
     news = _value(envelope, "public_news") or {}
-    summary = (envelope.get("synthesis") or {}).get("summary") or ""
+    latest = _value(envelope, "latest_entity_accounts") or {}
+    synthesis = envelope.get("synthesis") or {}
+    summary = synthesis.get("summary") or ""
+    unknowns = synthesis.get("unknowns") or []
     industry_label = industry.get("label") if isinstance(industry, dict) else ""
     place = municipality.get("name") if isinstance(municipality, dict) else ""
     employee_text = f"{employees} employees" if employees is not None else "employee count not published"
     site_text = "verified website" if website else "no verified website"
-    job_count = len((jobs.get("postings") or [])) if isinstance(jobs, dict) else 0
-    news_count = len((news.get("items") or [])) if isinstance(news, dict) else 0
-    facts = " · ".join(part for part in (place, industry_label, employee_text, site_text, f"{job_count} NAV ads" if job_count else "", f"{news_count} news" if news_count else "") if part)
-    return f"""<article class="card" data-text="{_esc(' '.join([org, name, facts]).casefold())}">
+    postings = (jobs.get("postings") or []) if isinstance(jobs, dict) else []
+    articles = (news.get("items") or []) if isinstance(news, dict) else []
+    facts = " · ".join(
+        part
+        for part in (
+            place,
+            industry_label,
+            employee_text,
+            site_text,
+            f"{len(postings)} NAV ads" if postings else "",
+            f"{len(articles)} news" if articles else "",
+        )
+        if part
+    )
+    revenue = ""
+    figures = latest.get("figures") if isinstance(latest, dict) else None
+    if isinstance(figures, dict) and isinstance(figures.get("revenue"), dict) and figures["revenue"].get("amount") is not None:
+        amount = figures["revenue"]["amount"]
+        currency = figures["revenue"].get("currency") or latest.get("currency") or ""
+        revenue = f"Latest revenue {amount:,} {currency} ({latest.get('period_to') or 'undated'})".strip()
+    site_link = f'<a href="{_esc(website)}">Verified website</a>' if website else "No verified website"
+    news_html = ""
+    if articles:
+        items = "".join(f"<li><a href=\"{_esc(item.get('url'))}\">{_esc(item.get('title'))}</a> <span class=\"meta\">{_esc(item.get('published_at'))}</span></li>" for item in articles[:3])
+        news_html = f"<ul>{items}</ul>"
+    job_html = ""
+    if postings:
+        items = "".join(f"<li><a href=\"{_esc(item.get('url'))}\">{_esc(item.get('title'))}</a></li>" for item in postings[:3])
+        job_html = f"<ul>{items}</ul>"
+    unknown_html = ""
+    if unknowns:
+        items = "".join(f"<li>{_esc(item)}</li>" for item in unknowns[:6])
+        unknown_html = f"<details><summary>What was not found</summary><ul>{items}</ul></details>"
+    flags = []
+    if website:
+        flags.append("site")
+    if articles:
+        flags.append("news")
+    if postings:
+        flags.append("jobs")
+    return f"""<article class="card" data-text="{_esc(' '.join([org, name, facts, summary]).casefold())}" data-flags="{' '.join(flags)}">
 <h2>{_esc(name)}</h2>
 <p class="meta">{_esc(org)} · {_esc(facts)}</p>
 <p>{_esc(summary)}</p>
-<p><a href="https://virksomhet.brreg.no/nb/oppslag/enheter/{_esc(org)}">Brønnøysund record</a></p>
+<p class="meta">{_esc(revenue) if revenue else "No revenue figure in the latest company accounts."}</p>
+<p>{site_link} · <a href="https://virksomhet.brreg.no/nb/oppslag/enheter/{_esc(org)}">Brønnøysund record</a></p>
+{news_html}{job_html}{unknown_html}
 </article>"""
 
 
@@ -263,22 +305,33 @@ def render_static(envelopes: list[dict[str, Any]]) -> str:
 :root {{ color-scheme: light; --ink:#1c1915; --muted:#5c564c; --line:#e4dccb; --paper:#f6f1e7; --card:#fffdf8; --green:#0f6e56; }}
 * {{ box-sizing: border-box; }}
 body {{ margin:0; font:16px/1.45 Georgia, serif; color:var(--ink); background:var(--paper); }}
-header {{ padding:1rem; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; }}
+header {{ padding:1rem; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:2; }}
 h1 {{ font-size:1.25rem; margin:0; }}
 main {{ padding:1rem; max-width:720px; margin:0 auto; }}
 input {{ font:inherit; width:100%; padding:.7rem; border:1px solid var(--line); border-radius:10px; margin-top:.7rem; }}
 .stats {{ color:var(--muted); font-size:.92rem; margin:.4rem 0 0; }}
+.filters {{ display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.7rem; }}
+.filters button {{ font:inherit; background:white; color:var(--ink); border:1px solid var(--line); border-radius:999px; padding:.35rem .7rem; }}
+.filters button[aria-pressed="true"] {{ background:var(--green); color:white; border-color:var(--green); }}
 .card {{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:.9rem 1rem; margin:.75rem 0; }}
 .card h2 {{ font-size:1.05rem; margin:0 0 .25rem; }}
 .meta {{ color:var(--muted); font-size:.92rem; margin:0 0 .5rem; }}
 a {{ color:var(--green); }}
+details {{ margin-top:.4rem; }}
+ul {{ margin:.3rem 0 .3rem 1.1rem; padding:0; }}
 </style>
 </head>
 <body>
 <header>
 <h1>Signalpost</h1>
-<p class="stats">{len(envelopes)} profiles · {verified} verified websites · {jobs} with NAV ads · {news} with dated news</p>
+<p class="stats">{len(envelopes)} profiles · {verified} verified websites · {jobs} with NAV ads · {news} with dated news. Missing figures are left blank.</p>
 <input id="q" type="search" placeholder="Search name, place, industry, or organisation number" aria-label="Search companies">
+<div class="filters">
+<button type="button" data-flag="" aria-pressed="true">All</button>
+<button type="button" data-flag="site" aria-pressed="false">Verified sites</button>
+<button type="button" data-flag="news" aria-pressed="false">Dated news</button>
+<button type="button" data-flag="jobs" aria-pressed="false">NAV ads</button>
+</div>
 </header>
 <main id="list">
 {cards}
@@ -286,12 +339,23 @@ a {{ color:var(--green); }}
 <script>
 const input = document.getElementById("q");
 const cards = Array.from(document.querySelectorAll(".card"));
-input.addEventListener("input", () => {{
+let flag = "";
+function apply() {{
   const needle = input.value.trim().toLowerCase();
   for (const card of cards) {{
-    card.hidden = needle.length > 0 && !card.dataset.text.includes(needle);
+    const textOk = needle.length === 0 || card.dataset.text.includes(needle);
+    const flagOk = flag === "" || card.dataset.flags.split(" ").includes(flag);
+    card.hidden = !(textOk && flagOk);
   }}
-}});
+}}
+input.addEventListener("input", apply);
+for (const button of document.querySelectorAll(".filters button")) {{
+  button.addEventListener("click", () => {{
+    flag = button.dataset.flag;
+    for (const other of document.querySelectorAll(".filters button")) other.setAttribute("aria-pressed", other === button ? "true" : "false");
+    apply();
+  }});
+}}
 </script>
 </body>
 </html>

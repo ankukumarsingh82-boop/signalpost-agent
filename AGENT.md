@@ -5,7 +5,7 @@ The organisation number is the only identity key. A name, domain, or brand is no
 ## Publish
 
 - Entity, role, workplace, group, and account fields returned for that exact organisation number by Brønnøysund.
-- The `hjemmeside` string stored on that entity, and only when its registrable domain is not shared by three or more organisations and is not a directory. It is labelled as a register value, not as a verified official site.
+- The `hjemmeside` string stored on that entity only when a page on that host identified the organisation. Shared, directory, and unverified hosts are not published.
 - The official website, its description, social links, career links, and news links only after a fetched page on that same domain shows the organisation number, or the legal name together with the registered postcode, or the registered telephone number.
 - Active NAV Arbeidsplassen ads whose employer organisation number equals this number.
 - Google News RSS items that contain the organisation number, or the exact legal name and the registered municipality. The RSS item is the evidence; the article body is not fetched.

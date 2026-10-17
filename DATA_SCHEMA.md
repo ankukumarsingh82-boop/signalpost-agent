@@ -67,7 +67,7 @@ A claim that is not `available` has `"value": null`. A checked workplace count o
 | --- | --- |
 | `legal_name`, `legal_form`, `organisation_status`, `business_address`, `postal_address`, `municipality`, `industry` | Entity register |
 | `employee_count`, `founding_date`, `vat_registered`, `share_capital`, `statutory_purpose`, `registered_activity` | Entity register. Absent keys are not zero |
-| `registry_listed_website` | Register `hjemmeside`, omitted when the host is shared or a directory |
+| `registry_listed_website` | Register `hjemmeside` only after that host is verified. Shared, directory, and unverified URLs are null |
 | `official_website` | Final URL only after page verification. Otherwise null |
 | `job_postings` | Active Arbeidsplassen ads with this `employer.orgnr` |
 | `public_news` | Dated Google News RSS items that match the organisation number, or the exact legal name plus municipality |

@@ -142,7 +142,13 @@ def select_news_items(
     accepted: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in parse_rss_items(xml_text):
-        method = news_match(org, legal_name, municipality, item["title"], item["description"])
+        description = item["description"]
+        publisher = item["publisher"]
+        if publisher and description.endswith(publisher):
+            description = description[: -len(publisher)].strip(" -")
+        if item["title"] and description.startswith(item["title"]):
+            description = description[len(item["title"]) :].strip(" -")
+        method = news_match(org, legal_name, municipality, item["title"], description)
         if not method:
             continue
         published_at = _parse_date(item["published_raw"])

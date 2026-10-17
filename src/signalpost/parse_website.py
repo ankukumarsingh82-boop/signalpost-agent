@@ -58,6 +58,14 @@ def strip_html(value: str) -> str:
     return " ".join(re.sub(r"<[^>]+>", " ", value or "").split())
 
 
+def visible_html(html: str) -> str:
+    """Drop scripts and styles. JSON-LD is kept because it is company-supplied identity."""
+    without = re.sub(r"(?is)<script\b(?![^>]*ld\+json)[^>]*>.*?</script>", " ", html or "")
+    without = re.sub(r"(?is)<style\b[^>]*>.*?</style>", " ", without)
+    without = re.sub(r"(?is)<noscript\b[^>]*>.*?</noscript>", " ", without)
+    return without
+
+
 def legal_name_in_text(legal_name: str, text: str) -> bool:
     name_tokens = _tokens(legal_name)
     text_tokens = _tokens(text)
@@ -104,15 +112,16 @@ def foreign_organisation_number(text: str, org: str) -> bool:
 
 def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: str | None, telephone: str | None) -> tuple[str | None, str]:
     """Return (method, claim span). Method is None when the page must not be used."""
-    if organisation_number_pattern(org).search(html):
-        match = organisation_number_pattern(org).search(html)
+    page = visible_html(html)
+    if organisation_number_pattern(org).search(page):
+        match = organisation_number_pattern(org).search(page)
         span = ""
         if match:
             start = max(0, match.start() - 80)
-            stop = min(len(html), match.end() + 80)
-            span = " ".join(re.sub(r"<[^>]+>", " ", html[start:stop]).split())[:240]
+            stop = min(len(page), match.end() + 80)
+            span = " ".join(re.sub(r"<[^>]+>", " ", page[start:stop]).split())[:240]
         return "organisation_number", span
-    text = strip_html(html)
+    text = strip_html(page)
     if foreign_organisation_number(text, org):
         return None, ""
     if legal_name and legal_name_in_text(legal_name, text) and postcode_in_text(postal_code, text):

@@ -2,9 +2,9 @@
   "agent": "signalpost",
   "version": "1.0.0",
   "run_id": "sample-1000",
-  "started_at": "2026-10-17T05:14:38Z",
-  "completed_at": "2026-10-17T05:22:14Z",
-  "elapsed_ms": 456758,
+  "started_at": "2026-10-17T06:17:29Z",
+  "completed_at": "2026-10-17T06:29:10Z",
+  "elapsed_ms": 701496,
   "input_count": 1000,
   "emitted_envelopes": 1000,
   "resumed_profiles": 0,
@@ -16,28 +16,35 @@
     "annual_accounts": 998,
     "leadership": 997,
     "registered_workplaces": 1000,
-    "official_website": 112,
-    "hiring_pages": 2,
-    "wikipedia_summary": 8,
-    "wikidata_description": 13,
-    "company_profile": 13
+    "official_website": 34,
+    "registry_listed_website": 34,
+    "website_description": 24,
+    "employee_count": 135,
+    "job_postings": 0,
+    "public_news": 2,
+    "hiring_pages": 6,
+    "wikipedia_summary": 0,
+    "wikidata_description": 0,
+    "company_profile": 24
   },
   "operations": {
-    "requests": 4375,
-    "http_requests_including_shared_lookups": 4415,
-    "runtime_ms": 456758,
+    "requests": 5559,
+    "http_requests_including_shared_lookups": 5653,
+    "runtime_ms": 701496,
     "third_party_cost_usd": 0,
-    "p50_ms": 2055,
-    "p95_ms": 13272,
-    "mean_ms": 3507
+    "p50_ms": 2300,
+    "p95_ms": 22697,
+    "mean_ms": 4575
   },
   "models": [],
   "apis": [
     "https://data.brreg.no/enhetsregisteret/api (NLOD)",
     "https://data.brreg.no/regnskapsregisteret/regnskap (NLOD)",
-    "https://query.wikidata.org/sparql (CC0)",
-    "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA)",
-    "company websites listed in the entity register, fetched only when robots.txt allows"
+    "https://query.wikidata.org/sparql (CC0, only with --wikidata)",
+    "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA, only with --wikidata)",
+    "https://pam-stilling-feed.nav.no public feed (free under NAV Arbeidsplassen terms; token fetched at runtime)",
+    "https://news.google.com/rss/search (RSS titles only; article bodies are not fetched)",
+    "company websites listed in the entity register, fetched only when robots.txt allows and the page identifies the company"
   ],
   "validation": {
     "passed": true,
@@ -45,5 +52,14 @@
     "issue_count": 0,
     "issues": [],
     "third_party_cost_ok": true
+  },
+  "nav_feed": {
+    "since": "2026-09-02",
+    "days": 45,
+    "pages": 93,
+    "active_stubs": 20429,
+    "capped": false,
+    "error": null,
+    "note": "Public Arbeidsplassen feed modified since 2026-09-02 (93 pages, 20429 active ads indexed by employer name)."
   }
 }
