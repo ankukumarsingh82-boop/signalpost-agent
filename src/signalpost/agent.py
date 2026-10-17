@@ -206,8 +206,32 @@ def research_company(
         )
 
 
-_PAGE_HINTS = ("kontakt", "contact", "om-oss", "omoss", "about", "personvern", "privacy")
-_FALLBACK_PATHS = ("/kontakt", "/kontakt-oss", "/contact", "/om-oss", "/about", "/about-us", "/personvern")
+_PAGE_HINTS = (
+    "kontakt",
+    "contact",
+    "om-oss",
+    "omoss",
+    "about",
+    "personvern",
+    "privacy",
+    "vilkar",
+    "vilkår",
+    "terms",
+    "salgsbetingelser",
+    "personvernerklaering",
+)
+_FALLBACK_PATHS = (
+    "/kontakt",
+    "/kontakt-oss",
+    "/contact",
+    "/om-oss",
+    "/about",
+    "/about-us",
+    "/personvern",
+    "/vilkar",
+    "/terms",
+    "/privacy",
+)
 
 
 def _empty_website(availability: str, note: str, **extra: Any) -> dict[str, Any]:
@@ -252,7 +276,30 @@ def _candidate_pages(html: str, page_url: str) -> list[str]:
             add(href)
     for path in _FALLBACK_PATHS:
         add(path)
-    return found[:4]
+    return found[:6]
+
+
+def sitemap_identity_urls(xml_text: str, page_url: str, *, limit: int = 3) -> list[str]:
+    """Same-site sitemap locations that look like contact, about, privacy, or terms pages."""
+    import re
+    from urllib.parse import urljoin
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for loc in re.findall(r"(?i)<loc>\s*([^<\s]+)\s*</loc>", xml_text or ""):
+        absolute = urljoin(page_url, loc.strip())
+        if not same_registrable_domain(page_url, absolute):
+            continue
+        lowered = absolute.casefold()
+        if not any(hint in lowered for hint in _PAGE_HINTS):
+            continue
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        found.append(absolute)
+        if len(found) >= limit:
+            break
+    return found
 
 
 def re_hrefs(html: str) -> list[str]:
@@ -336,8 +383,18 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
             errors=[{"url": listed, "status": fetched.status, "error": "cross_domain_or_directory_redirect", "final_url": final_url}],
         )
     pages: list[tuple[Fetch, dict[str, object]]] = []
-    pages.append((fetched, extract_page(fetched.text, org, final_url, **identity)))
-    for candidate in _candidate_pages(fetched.text, final_url):
+    home = extract_page(fetched.text, org, final_url, **identity)
+    pages.append((fetched, home))
+    candidates = _candidate_pages(fetched.text, final_url)
+    if not home.get("verified"):
+        origin = urlsplit(final_url)
+        sitemap_url = f"{origin.scheme}://{origin.netloc}/sitemap.xml"
+        sitemap = track(client.get_text(sitemap_url, timeout=6, max_bytes=400_000, public_only=True, retries=0))
+        if sitemap.status == 200 and sitemap.text:
+            for loc in sitemap_identity_urls(sitemap.text, final_url):
+                if loc not in candidates:
+                    candidates.insert(0, loc)
+    for candidate in candidates[:6]:
         extra = track(client.get_text(candidate, timeout=6, max_bytes=500_000, public_only=True, retries=0))
         if extra.status != 200 or not extra.text:
             continue
@@ -385,6 +442,9 @@ def _research_website(client: HttpClient, track: Any, parsed: dict[str, Any] | N
         "name_and_postcode": "The page contains the legal name and the registered postcode.",
         "telephone": "The page contains the telephone number recorded in the entity register.",
         "distinctive_name_token": "The register host loaded on the same domain and the page contains a distinctive part of the company name.",
+        "embedded_organisation_number": "The page labels this organisation number, including an NO … MVA form.",
+        "json_ld_organisation_number": "JSON-LD on the page carries this organisation number.",
+        "json_ld_name_and_postcode": "JSON-LD on the page carries the legal name and the registered postcode.",
     }
     return {
         "availability": "available",

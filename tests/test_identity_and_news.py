@@ -1,5 +1,6 @@
 import ipaddress
 
+from signalpost.agent import sitemap_identity_urls
 from signalpost.domains import registrable_domain, same_registrable_domain, unpublishable_reason
 from signalpost.http_client import _is_blocked_ip, assert_public_http_url
 from signalpost.news import exact_legal_name_match, news_match, select_news_items
@@ -23,6 +24,17 @@ def test_shared_and_directory_hosts_are_unpublishable():
     assert unpublishable_reason("https://www.equinor.com") is None
     assert same_registrable_domain("https://www.equinor.com", "https://cdn.equinor.com/about") is True
     assert same_registrable_domain("https://example.no", "https://www.proff.no/x") is False
+
+
+def test_sitemap_keeps_same_site_identity_pages():
+    xml = """<?xml version="1.0"?><urlset>
+      <url><loc>https://example.no/karriere</loc></url>
+      <url><loc>https://example.no/personvern</loc></url>
+      <url><loc>https://other.no/vilkar</loc></url>
+      <url><loc>https://www.example.no/vilkar</loc></url>
+    </urlset>"""
+    found = sitemap_identity_urls(xml, "https://example.no/")
+    assert found == ["https://example.no/personvern", "https://www.example.no/vilkar"]
 
 
 def test_news_requires_org_number_or_name_plus_municipality():

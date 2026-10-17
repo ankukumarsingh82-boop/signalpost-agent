@@ -47,6 +47,11 @@ def test_different_organisation_number_is_not_publishable():
 def test_pattern_does_not_match_a_longer_number():
     assert organisation_number_pattern(ORG).search("x9236090169") is None
     assert organisation_number_pattern(ORG).search("NO923609016MVA")
+    spaced = extract_page("<html><body><p>NO 923 609 016 MVA</p></body></html>", ORG, "https://example.no/")
+    assert spaced["verified"] is True
+    assert spaced["method"] == "organisation_number"
+    nbsp = extract_page("<html><body><p>NO\u00a0923\u00a0609\u00a0016\u00a0MVA</p></body></html>", ORG, "https://example.no/")
+    assert nbsp["method"] == "organisation_number"
 
 
 def test_name_and_postcode_verifies_without_an_organisation_number():
@@ -96,6 +101,26 @@ def test_distinctive_name_token_accepts_a_unique_register_host():
     assert extracted["verified"] is True
     assert extracted["method"] == "distinctive_name_token"
     assert "arkitekter" in str(extracted["claim_span"])
+
+
+def test_json_ld_name_and_postcode_verifies_without_visible_text():
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+        {"@type":"Organization","legalName":"BERGESAG AS","address":{"@type":"PostalAddress","postalCode":"5760"}}
+      </script>
+    </head><body><p>Velkommen.</p></body></html>
+    """
+    extracted = extract_page(html, ORG, "https://bergesag.no/", legal_name="BERGESAG AS", postal_code="5760")
+    assert extracted["verified"] is True
+    assert extracted["method"] == "json_ld_name_and_postcode"
+
+
+def test_labelled_number_in_a_script_verifies_and_a_bare_number_does_not():
+    labelled = "<html><body><script>var x='organisasjonsnummer: 923609016';</script><p>Hei</p></body></html>"
+    bare = "<html><body><script>var id=923609016;</script><p>Hei</p></body></html>"
+    assert extract_page(labelled, ORG, "https://example.no/")["method"] == "embedded_organisation_number"
+    assert extract_page(bare, ORG, "https://example.no/")["verified"] is False
 
 
 def test_generic_token_does_not_accept_a_register_host():

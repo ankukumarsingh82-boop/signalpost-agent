@@ -237,6 +237,69 @@ def foreign_organisation_number(text: str, org: str) -> bool:
     return False
 
 
+def _ld_json_nodes(html: str) -> list[dict]:
+    nodes: list[dict] = []
+    for raw in re.findall(r"(?is)<script\b[^>]*ld\+json[^>]*>(.*?)</script>", html or ""):
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        pending = payload if isinstance(payload, list) else [payload]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, list):
+                pending.extend(node)
+                continue
+            if not isinstance(node, dict):
+                continue
+            graph = node.get("@graph")
+            if isinstance(graph, list):
+                pending.extend(graph)
+            nodes.append(node)
+    return nodes
+
+
+def json_ld_identity(html: str, org: str, *, legal_name: str | None, postal_code: str | None) -> tuple[str, str] | None:
+    """Organisation number, or legal name plus postcode, from JSON-LD."""
+    pattern = organisation_number_pattern(org)
+    for node in _ld_json_nodes(html):
+        for key in ("taxID", "vatID", "identifier", "lei"):
+            value = node.get(key)
+            if isinstance(value, dict):
+                value = value.get("value") or value.get("@id") or value.get("name")
+            if isinstance(value, str) and pattern.search(value):
+                return "json_ld_organisation_number", " ".join(value.split())[:240]
+        name = node.get("legalName") or node.get("name")
+        address = node.get("address") if isinstance(node.get("address"), dict) else {}
+        code = address.get("postalCode") or address.get("postalcode")
+        if (
+            isinstance(name, str)
+            and legal_name
+            and legal_name_in_text(legal_name, name)
+            and postcode_in_text(postal_code, str(code or ""))
+        ):
+            return "json_ld_name_and_postcode", f"{name} {code}"[:240]
+    return None
+
+
+def labelled_organisation_span(html: str, org: str) -> str | None:
+    """Quote an organisation number that is labelled or written as NO … MVA."""
+    for match in organisation_number_pattern(org).finditer(html or ""):
+        start = max(0, match.start() - 48)
+        stop = min(len(html), match.end() + 12)
+        window = html[start:stop]
+        flat = strip_html(window)
+        lowered = flat.casefold()
+        prefix = html[max(0, match.start() - 4) : match.start()]
+        suffix = html[match.end() : match.end() + 8]
+        mva = "mva" in lowered or "mva" in suffix.casefold()
+        labelled = bool(re.search(r"organisasjonsnummer|org\.?\s*nr|foretaksnummer|taxid|vatid", lowered))
+        no_prefix = bool(re.search(r"no[\s.\-\u00a0]*$", prefix, re.IGNORECASE))
+        if mva or labelled or (no_prefix and mva):
+            return " ".join(flat.split())[:240]
+    return None
+
+
 def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: str | None, telephone: str | None) -> tuple[str | None, str]:
     """Return (method, claim span). Method is None when the page must not be used."""
     page = visible_html(html)
@@ -248,6 +311,12 @@ def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: 
             stop = min(len(page), match.end() + 80)
             span = " ".join(re.sub(r"<[^>]+>", " ", page[start:stop]).split())[:240]
         return "organisation_number", span
+    embedded = labelled_organisation_span(html, org)
+    if embedded:
+        return "embedded_organisation_number", embedded
+    structured = json_ld_identity(html, org, legal_name=legal_name, postal_code=postal_code)
+    if structured:
+        return structured
     text = strip_html(page)
     if foreign_organisation_number(text, org):
         return None, ""
