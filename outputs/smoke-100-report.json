@@ -1,0 +1,12 @@
+{
+  "agent": "signalpost",
+  "kind": "smoke-100",
+  "note": "First 100 envelopes of outputs/envelopes.jsonl (run-id sample-1000). One envelope per line of data/sample-100.txt. Not the official score.",
+  "input": "data/sample-100.txt",
+  "envelopes": 100,
+  "organisation_numbers_match": true,
+  "third_party_cost_usd": 0,
+  "terminal_status": {
+    "completed": 100
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "agent": "signalpost",
+  "version": "1.0.0",
+  "run_id": "sample-1000",
+  "started_at": "2026-10-17T05:14:38Z",
+  "completed_at": "2026-10-17T05:22:14Z",
+  "elapsed_ms": 456758,
+  "input_count": 1000,
+  "emitted_envelopes": 1000,
+  "resumed_profiles": 0,
+  "terminal_status": {
+    "completed": 1000
+  },
+  "field_coverage": {
+    "legal_name": 1000,
+    "annual_accounts": 998,
+    "leadership": 997,
+    "registered_workplaces": 1000,
+    "official_website": 112,
+    "hiring_pages": 2,
+    "wikipedia_summary": 8,
+    "wikidata_description": 13,
+    "company_profile": 13
+  },
+  "operations": {
+    "requests": 4375,
+    "http_requests_including_shared_lookups": 4415,
+    "runtime_ms": 456758,
+    "third_party_cost_usd": 0,
+    "p50_ms": 2055,
+    "p95_ms": 13272,
+    "mean_ms": 3507
+  },
+  "models": [],
+  "apis": [
+    "https://data.brreg.no/enhetsregisteret/api (NLOD)",
+    "https://data.brreg.no/regnskapsregisteret/regnskap (NLOD)",
+    "https://query.wikidata.org/sparql (CC0)",
+    "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA)",
+    "company websites listed in the entity register, fetched only when robots.txt allows"
+  ],
+  "validation": {
+    "passed": true,
+    "envelope_count": 1000,
+    "issue_count": 0,
+    "issues": [],
+    "third_party_cost_ok": true
+  }
+}

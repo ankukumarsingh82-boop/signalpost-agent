@@ -1,0 +1,74 @@
+Looking up Wikidata for 1000 organisation numbers...
+Wikidata matched 14 organisation numbers.
+checkpoint 25/1000
+checkpoint 50/1000
+checkpoint 75/1000
+checkpoint 100/1000
+checkpoint 125/1000
+checkpoint 150/1000
+checkpoint 175/1000
+checkpoint 200/1000
+checkpoint 225/1000
+checkpoint 250/1000
+checkpoint 275/1000
+checkpoint 300/1000
+checkpoint 325/1000
+checkpoint 350/1000
+checkpoint 375/1000
+checkpoint 400/1000
+checkpoint 425/1000
+checkpoint 450/1000
+checkpoint 475/1000
+checkpoint 500/1000
+checkpoint 525/1000
+checkpoint 550/1000
+checkpoint 575/1000
+checkpoint 600/1000
+checkpoint 625/1000
+checkpoint 650/1000
+checkpoint 675/1000
+checkpoint 700/1000
+checkpoint 725/1000
+checkpoint 750/1000
+checkpoint 775/1000
+checkpoint 800/1000
+checkpoint 825/1000
+checkpoint 850/1000
+checkpoint 875/1000
+checkpoint 900/1000
+checkpoint 925/1000
+checkpoint 950/1000
+checkpoint 975/1000
+checkpoint 1000/1000
+{
+  "run_id": "sample-1000",
+  "emitted_envelopes": 1000,
+  "field_coverage": {
+    "legal_name": 1000,
+    "annual_accounts": 998,
+    "leadership": 997,
+    "registered_workplaces": 1000,
+    "official_website": 112,
+    "hiring_pages": 2,
+    "wikipedia_summary": 8,
+    "wikidata_description": 13,
+    "company_profile": 13
+  },
+  "operations": {
+    "requests": 4375,
+    "http_requests_including_shared_lookups": 4415,
+    "runtime_ms": 456758,
+    "third_party_cost_usd": 0,
+    "p50_ms": 2055,
+    "p95_ms": 13272,
+    "mean_ms": 3507
+  },
+  "validation": {
+    "passed": true,
+    "envelope_count": 1000,
+    "issue_count": 0,
+    "issues": [],
+    "third_party_cost_ok": true
+  }
+}
+EXIT:0
