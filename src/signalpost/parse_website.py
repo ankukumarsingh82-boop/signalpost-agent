@@ -24,8 +24,57 @@ SOCIAL_HOSTS = {
     "tiktok.com": "tiktok",
 }
 
-HIRING_HINTS = ("karriere", "stilling", "jobb", "jobs", "career", "vacanc", "ledige", "join-us", "joinus", "recruit")
-NEWS_HINTS = ("nyhet", "news", "press", "aktuelt", "blog")
+HIRING_PATH = re.compile(
+    r"(?:^|/)(?:karriere|karrierer|stillinger|stilling|jobber|jobb|jobs|careers|career|vacancies|vacancy|ledige-stillinger|join-us|joinus|recruitment|recruit|rekruttering)(?:/|$)",
+    re.IGNORECASE,
+)
+HIRING_BLOCK = (
+    "bestill",
+    "blogg",
+    "blog",
+    "booking",
+    "leie",
+    "news",
+    "nyhet",
+    "personvern",
+    "privacy",
+    "rental",
+    "terms",
+    "utleie",
+    "vilkar",
+    "vilkår",
+)
+NEWS_HINTS = ("nyhet", "news", "press", "aktuelt")
+_GITHUB_RESERVED = {
+    "about",
+    "account",
+    "collections",
+    "customer-stories",
+    "enterprise",
+    "events",
+    "explore",
+    "features",
+    "issues",
+    "join",
+    "login",
+    "marketplace",
+    "new",
+    "notifications",
+    "org",
+    "organizations",
+    "pricing",
+    "pulls",
+    "readme",
+    "search",
+    "security",
+    "settings",
+    "signup",
+    "sponsors",
+    "team",
+    "topics",
+    "trending",
+}
+_X_RESERVED = {"explore", "hashtag", "home", "i", "intent", "search", "settings", "share", "tos"}
 
 
 LEGAL_FORMS = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti", "iks", "fkf", "sf", "hf", "rhf"}
@@ -136,13 +185,26 @@ def postcode_in_text(postcode: str | None, text: str) -> bool:
     return re.search(rf"(?<!\d){code}(?!\d)", text) is not None
 
 
-def phone_in_text(phone: str | None, text: str) -> bool:
+def _phone_pattern(phone: str | None) -> re.Pattern[str] | None:
     digits = "".join(character for character in str(phone or "") if character.isdigit())
     if len(digits) < 8:
-        return False
+        return None
     target = digits[-8:]
-    spaced = r"[\s.\-]*".join(target)
-    return re.search(rf"(?<!\d){spaced}(?!\d)", text) is not None
+    spaced = r"[\s.\-\u00a0]*".join(target)
+    return re.compile(rf"(?<!\d){spaced}(?!\d)")
+
+
+def phone_in_text(phone: str | None, text: str) -> bool:
+    pattern = _phone_pattern(phone)
+    return pattern.search(text) is not None if pattern else False
+
+
+def matched_phone(phone: str | None, text: str) -> str | None:
+    pattern = _phone_pattern(phone)
+    if pattern is None:
+        return None
+    found = pattern.search(text)
+    return found.group(0) if found else None
 
 
 def distinctive_name_token(legal_name: str | None, text: str) -> str | None:
@@ -191,8 +253,9 @@ def identity_match(html: str, org: str, *, legal_name: str | None, postal_code: 
         return None, ""
     if legal_name and legal_name_in_text(legal_name, text) and postcode_in_text(postal_code, text):
         return "name_and_postcode", f"{legal_name} {postal_code}"[:240]
-    if telephone and phone_in_text(telephone, text):
-        return "telephone", "registered telephone"
+    quoted = matched_phone(telephone, text) if telephone else None
+    if quoted:
+        return "telephone", f"registered telephone {quoted}"
     token = distinctive_name_token(legal_name, text)
     if token:
         return "distinctive_name_token", f"{token} from {legal_name}"[:240]
@@ -257,6 +320,70 @@ def social_platform(url: str) -> str | None:
         if host == domain or host.endswith("." + domain):
             return platform
     return None
+
+
+def _path_parts(url: str) -> list[str]:
+    return [part for part in urlsplit(url).path.split("/") if part]
+
+
+def company_profile_url(url: str) -> str | None:
+    """Canonical company-profile URL, or None for posts, shares, and personal pages."""
+    platform = social_platform(url)
+    if not platform:
+        return None
+    parts = urlsplit(url)
+    host = _host_key(parts.hostname or "")
+    path = parts.path or "/"
+    lowered = path.casefold()
+    query = parts.query.casefold()
+    segments = [part.casefold() for part in _path_parts(url)]
+    if platform == "linkedin":
+        if not segments or segments[0] not in {"company", "school"}:
+            return None
+        if any(part in {"posts", "share"} for part in segments):
+            return None
+    elif platform == "facebook":
+        blocked = ("sharer", "share.php", "dialog", "story.php", "permalink.php", "profile.php", "photo.php", "watch")
+        if any(token in lowered or token in query for token in blocked):
+            return None
+        if not segments or segments[0] in {"people", "posts", "share", "sharer", "dialog", "watch", "reel", "groups", "marketplace", "login", "help", "privacy"}:
+            return None
+        if "posts" in segments or "photos" in segments or "videos" in segments:
+            return None
+    elif platform == "instagram":
+        if len(segments) != 1 or segments[0] in {"p", "reel", "reels", "stories", "explore", "about", "accounts", "developer"}:
+            return None
+    elif platform == "youtube":
+        if host == "youtu.be":
+            return None
+        if not segments:
+            return None
+        if segments[0] in {"watch", "shorts", "embed", "playlist", "feed", "results"}:
+            return None
+        if segments[0] not in {"channel", "c", "user"} and not segments[0].startswith("@"):
+            return None
+    elif platform == "github":
+        if len(segments) != 1 or segments[0] in _GITHUB_RESERVED or segments[0].startswith("."):
+            return None
+    elif platform == "x":
+        if not segments or segments[0] in _X_RESERVED or "intent" in segments or "status" in segments:
+            return None
+        if len(segments) != 1:
+            return None
+    elif platform == "tiktok":
+        if not segments or not segments[0].startswith("@") or "video" in segments:
+            return None
+    else:
+        return None
+    canonical_path = "/" + "/".join(_path_parts(url))
+    return f"https://{host}{canonical_path}"
+
+
+def is_hiring_page(url: str) -> bool:
+    path = urlsplit(url).path.casefold()
+    if any(token in path for token in HIRING_BLOCK):
+        return False
+    return HIRING_PATH.search(path) is not None
 
 
 class _PageParser(HTMLParser):
@@ -459,17 +586,17 @@ def extract_page(
         absolute = urljoin(page_url, href)
         if urlsplit(absolute).scheme not in {"http", "https"}:
             continue
-        platform = social_platform(absolute)
-        if platform and absolute not in seen_social:
-            seen_social.add(absolute)
-            social.append({"platform": platform, "url": absolute})
+        profile = company_profile_url(absolute)
+        if profile and profile not in seen_social:
+            seen_social.add(profile)
+            social.append({"platform": social_platform(profile) or "", "url": profile})
         if absolute in seen_links or not _same_site(page_url, absolute):
             continue
         seen_links.add(absolute)
-        haystack = absolute.casefold()
-        if any(hint in haystack for hint in HIRING_HINTS) and len(hiring) < 5:
+        path = urlsplit(absolute).path.casefold()
+        if is_hiring_page(absolute) and len(hiring) < 5:
             hiring.append(absolute)
-        elif any(hint in haystack for hint in NEWS_HINTS) and len(news) < 5:
+        elif any(hint in path for hint in NEWS_HINTS) and len(news) < 5:
             news.append(absolute)
     title = " ".join(" ".join(parser.title_parts).split())[:180]
     return {

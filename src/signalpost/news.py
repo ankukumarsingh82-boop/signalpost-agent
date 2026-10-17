@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 
 from .http_client import HttpClient, utc_now
@@ -118,17 +118,32 @@ def parse_rss_items(xml_text: str) -> list[dict[str, str]]:
         published = (item.findtext("pubDate") or "").strip()
         source = item.find("source")
         publisher = strip_html(source.text or "") if source is not None and source.text else ""
+        source_url = (source.attrib.get("url") or "").strip() if source is not None else ""
         if title and link:
             items.append(
                 {
                     "title": title,
                     "link": link,
+                    "source_url": source_url,
                     "description": description,
                     "published_raw": published,
                     "publisher": publisher,
                 }
             )
     return items
+
+
+def _publisher_url(link: str, source_url: str) -> str:
+    """Prefer the RSS source URL over a news.google.com redirect."""
+    for candidate in (source_url, link):
+        parts = urlsplit(candidate)
+        host = (parts.hostname or "").lower()
+        if parts.scheme not in {"http", "https"} or not host:
+            continue
+        if host == "news.google.com" or host.endswith(".news.google.com"):
+            continue
+        return candidate
+    return link
 
 
 def select_news_items(
@@ -161,7 +176,7 @@ def select_news_items(
         accepted.append(
             {
                 "title": item["title"][:240],
-                "url": item["link"],
+                "url": _publisher_url(item["link"], item.get("source_url") or ""),
                 "published_at": published_at,
                 "publisher": item["publisher"] or None,
                 "match": method,
@@ -170,6 +185,19 @@ def select_news_items(
         if len(accepted) >= limit:
             break
     return accepted
+
+
+def _resolve_google_redirect(client: HttpClient, track: Any, item: dict[str, Any]) -> dict[str, Any]:
+    url = str(item.get("url") or "")
+    host = (urlsplit(url).hostname or "").lower()
+    if "news.google.com" not in host:
+        return item
+    fetched = track(client.get_text(url, timeout=8, max_bytes=200_000, public_only=True, retries=0))
+    final = fetched.final_url or ""
+    final_host = (urlsplit(final).hostname or "").lower()
+    if fetched.ok and final_host and "news.google.com" not in final_host:
+        return {**item, "url": final}
+    return item
 
 
 def research_news(client: HttpClient, track: Any, parsed: dict[str, Any] | None, *, skip: bool) -> dict[str, Any]:
@@ -204,6 +232,7 @@ def research_news(client: HttpClient, track: Any, parsed: dict[str, Any] | None,
         legal_name=str(parsed.get("name") or ""),
         municipality=str(municipality) if municipality else None,
     )
+    items = [_resolve_google_redirect(client, track, item) for item in items]
     hit = {
         "url": fetched.url,
         "final_url": fetched.final_url,

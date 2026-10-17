@@ -28,7 +28,7 @@ def test_spaced_organisation_number_verifies_page_and_keeps_social_links():
     extracted = extract_page(html, ORG, "https://www.equinor.com/")
     assert extracted["verified"] is True
     assert extracted["description"].startswith("Equinor develops")
-    assert extracted["social_links"] == [{"platform": "linkedin", "url": "https://www.linkedin.com/company/equinor"}]
+    assert extracted["social_links"] == [{"platform": "linkedin", "url": "https://linkedin.com/company/equinor"}]
     assert extracted["hiring_pages"] == ["https://www.equinor.com/karriere"]
     assert extracted["news_pages"] == ["https://www.equinor.com/nyheter"]
     assert "923 609 016" in extracted["claim_span"] or "923609016" in extracted["claim_span"]
@@ -78,6 +78,7 @@ def test_phone_match_verifies_and_a_different_phone_does_not():
     assert phone_in_text("22001122", html)
     extracted = extract_page(html, ORG, "https://example.no/", telephone="22001122")
     assert extracted["method"] == "telephone"
+    assert "22 00 11 22" in str(extracted["claim_span"])
     assert extract_page(html, ORG, "https://example.no/", telephone="99999999")["verified"] is False
 
 
@@ -101,6 +102,45 @@ def test_generic_token_does_not_accept_a_register_host():
     html = "<html><body><p>Velkommen til Norge og vår service.</p></body></html>"
     extracted = extract_page(html, ORG, "https://example.no/", legal_name="SERVICE NORGE AS")
     assert extracted["verified"] is False
+
+
+def test_only_company_profile_urls_are_kept_and_deduped():
+    html = """
+    <html><body>
+      <p>Organisasjonsnummer 923 609 016</p>
+      <a href="https://www.linkedin.com/company/equinor/?trk=public">LinkedIn</a>
+      <a href="https://linkedin.com/in/someone">Person</a>
+      <a href="https://www.linkedin.com/shareArticle?url=https://equinor.com">Share</a>
+      <a href="https://www.facebook.com/sharer/sharer.php?u=https://equinor.com">FB share</a>
+      <a href="https://www.facebook.com/equinor/posts/123">Post</a>
+      <a href="https://www.facebook.com/equinor">Page</a>
+      <a href="https://www.facebook.com/equinor">Page again</a>
+      <a href="https://github.com/equinor/repo">Repo</a>
+      <a href="https://github.com/equinor">Org</a>
+      <a href="https://www.youtube.com/watch?v=abc">Video</a>
+      <a href="https://www.youtube.com/@equinor">Channel</a>
+      <a href="https://x.com/intent/tweet?text=hi">Tweet</a>
+      <a href="https://x.com/equinor">X</a>
+      <a href="/karriere">Jobs</a>
+      <a href="/booking">Booking</a>
+      <a href="/blogg/karriere">Blog</a>
+      <a href="/utleie">Rental</a>
+      <a href="/ledige-stillinger">Vacancies</a>
+    </body></html>
+    """
+    extracted = extract_page(html, ORG, "https://www.equinor.com/", legal_name="EQUINOR ASA")
+    urls = [item["url"] for item in extracted["social_links"]]
+    assert urls == [
+        "https://linkedin.com/company/equinor",
+        "https://facebook.com/equinor",
+        "https://github.com/equinor",
+        "https://youtube.com/@equinor",
+        "https://x.com/equinor",
+    ]
+    assert extracted["hiring_pages"] == [
+        "https://www.equinor.com/karriere",
+        "https://www.equinor.com/ledige-stillinger",
+    ]
 
 
 def test_robots_disallow_root_blocks_homepage_only():

@@ -42,4 +42,8 @@ def test_news_requires_org_number_or_name_plus_municipality():
     items = select_news_items(rss, org="810034882", legal_name=name, municipality="SANDNES")
     assert len(items) == 1
     assert items[0]["published_at"].startswith("2026-10-16")
+    assert items[0]["url"].startswith("https://news.google.com/")
     assert select_news_items(rss, org="810034882", legal_name=name, municipality="OSLO") == []
+    with_source = rss.replace("<source>VG</source>", '<source url="https://www.vg.no/a/123">VG</source>')
+    resolved = select_news_items(with_source, org="810034882", legal_name=name, municipality="SANDNES")
+    assert resolved[0]["url"] == "https://www.vg.no/a/123"
