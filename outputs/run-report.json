@@ -2,9 +2,9 @@
   "agent": "signalpost",
   "version": "1.0.0",
   "run_id": "sample-1000",
-  "started_at": "2026-10-17T06:17:29Z",
-  "completed_at": "2026-10-17T06:29:10Z",
-  "elapsed_ms": 701496,
+  "started_at": "2026-10-17T07:25:01Z",
+  "completed_at": "2026-10-17T07:33:55Z",
+  "elapsed_ms": 534297,
   "input_count": 1000,
   "emitted_envelopes": 1000,
   "resumed_profiles": 0,
@@ -16,25 +16,25 @@
     "annual_accounts": 998,
     "leadership": 997,
     "registered_workplaces": 1000,
-    "official_website": 34,
-    "registry_listed_website": 34,
-    "website_description": 24,
+    "official_website": 45,
+    "registry_listed_website": 45,
+    "website_description": 34,
     "employee_count": 135,
-    "job_postings": 0,
+    "job_postings": 4,
     "public_news": 2,
-    "hiring_pages": 6,
+    "hiring_pages": 4,
     "wikipedia_summary": 0,
     "wikidata_description": 0,
-    "company_profile": 24
+    "company_profile": 28
   },
   "operations": {
-    "requests": 5559,
-    "http_requests_including_shared_lookups": 5653,
-    "runtime_ms": 701496,
+    "requests": 5588,
+    "http_requests_including_shared_lookups": 5680,
+    "runtime_ms": 534297,
     "third_party_cost_usd": 0,
-    "p50_ms": 2300,
-    "p95_ms": 22697,
-    "mean_ms": 4575
+    "p50_ms": 2295,
+    "p95_ms": 13095,
+    "mean_ms": 3549
   },
   "models": [],
   "apis": [
@@ -56,10 +56,10 @@
   "nav_feed": {
     "since": "2026-09-02",
     "days": 45,
-    "pages": 93,
-    "active_stubs": 20429,
+    "pages": 92,
+    "active_stubs": 20399,
     "capped": false,
     "error": null,
-    "note": "Public Arbeidsplassen feed modified since 2026-09-02 (93 pages, 20429 active ads indexed by employer name)."
+    "note": "Public Arbeidsplassen feed modified since 2026-09-02 (92 pages, 20399 active ads indexed by employer name)."
   }
 }

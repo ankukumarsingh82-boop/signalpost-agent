@@ -1,15 +1,51 @@
 {
   "agent": "signalpost",
+  "version": "1.0.0",
   "run_id": "smoke-100",
-  "source": "first 100 envelopes of outputs/envelopes.jsonl",
+  "started_at": "2026-10-17T07:25:01Z",
+  "completed_at": "2026-10-17T07:33:55Z",
+  "elapsed_ms": 0,
+  "input_count": 100,
   "emitted_envelopes": 100,
+  "resumed_profiles": 0,
+  "terminal_status": {
+    "completed": 100
+  },
   "field_coverage": {
     "legal_name": 100,
     "annual_accounts": 100,
+    "leadership": 100,
+    "registered_workplaces": 100,
     "official_website": 6,
-    "job_postings": 0,
-    "public_news": 0
+    "registry_listed_website": 6,
+    "website_description": 5,
+    "employee_count": 12,
+    "job_postings": 1,
+    "public_news": 0,
+    "hiring_pages": 1,
+    "wikipedia_summary": 0,
+    "wikidata_description": 0,
+    "company_profile": 3
   },
+  "operations": {
+    "requests": 571,
+    "http_requests_including_shared_lookups": null,
+    "runtime_ms": 0,
+    "third_party_cost_usd": 0,
+    "p50_ms": 2329,
+    "p95_ms": 22441,
+    "mean_ms": 4644
+  },
+  "models": [],
+  "apis": [
+    "https://data.brreg.no/enhetsregisteret/api (NLOD)",
+    "https://data.brreg.no/regnskapsregisteret/regnskap (NLOD)",
+    "https://query.wikidata.org/sparql (CC0, only with --wikidata)",
+    "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA, only with --wikidata)",
+    "https://pam-stilling-feed.nav.no public feed (free under NAV Arbeidsplassen terms; token fetched at runtime)",
+    "https://news.google.com/rss/search (RSS titles only; article bodies are not fetched)",
+    "company websites listed in the entity register, fetched only when robots.txt allows and the page identifies the company"
+  ],
   "validation": {
     "passed": true,
     "envelope_count": 100,
@@ -17,5 +53,5 @@
     "issues": [],
     "third_party_cost_ok": true
   },
-  "third_party_cost_usd": 0
+  "note": "Slice of outputs/envelopes.jsonl for the first 100 organisation numbers in data/sample-1000.txt. Same run as sample-1000."
 }

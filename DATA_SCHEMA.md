@@ -69,10 +69,10 @@ A claim that is not `available` has `"value": null`. A checked workplace count o
 | `employee_count`, `founding_date`, `vat_registered`, `share_capital`, `statutory_purpose`, `registered_activity` | Entity register. Absent keys are not zero |
 | `registry_listed_website` | Register `hjemmeside` only after that host is verified. Shared, directory, and unverified URLs are null |
 | `official_website` | Final URL only after page verification. Otherwise null |
-| `job_postings` | Active Arbeidsplassen ads with this `employer.orgnr` |
+| `job_postings` | Active Arbeidsplassen ads whose employer number is this organisation or a sub-unit of it |
 | `public_news` | Dated Google News RSS items that match the organisation number, or the exact legal name plus municipality |
 | `company_news_items` | Dated headlines from article blocks on the verified site |
-| `website_page_verified` | True when a fetched page shows the organisation number, the legal name plus registered postcode, or the registered phone. False when a page was fetched and did not match |
+| `website_page_verified` | True when a fetched page shows the organisation number, JSON-LD identity, the legal name plus registered postcode, the registered phone, or a distinctive name token that is also in the register host. False when a page was fetched and did not match |
 | `website_description`, `company_profile.{platform}`, `hiring_pages`, `company_news_pages` | Published only when `website_page_verified` is true |
 | `annual_accounts`, `latest_entity_accounts`, `latest_group_accounts` | Regnskapsregisteret. Group accounts are labelled and not mixed into the entity |
 | `accounts.{TYPE}.{YEAR}.{figure}` | One figure: revenue, operating result, profit before tax, annual result, assets, equity, debt |
