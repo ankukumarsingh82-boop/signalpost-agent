@@ -100,8 +100,11 @@ GENERIC_NAME_TOKENS = LEGAL_FORMS | {
     "glass",
     "group",
     "gruppen",
+    "handverk",
     "holding",
     "hus",
+    "håndverk",
+    "håndverkere",
     "international",
     "invest",
     "ltd",
@@ -205,6 +208,21 @@ def matched_phone(phone: str | None, text: str) -> str | None:
         return None
     found = pattern.search(text)
     return found.group(0) if found else None
+
+
+def domain_contains_distinctive_token(url: str, legal_name: str | None) -> bool:
+    """True when the register host itself contains a distinctive part of the name.
+
+    A token on the page is not enough when the host is a different brand.
+    """
+    host = (urlsplit(url).hostname or "").casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    compact = host.replace("-", "").replace(".", "")
+    for token in _tokens(legal_name or ""):
+        if len(token) >= 4 and token not in GENERIC_NAME_TOKENS and not token.isdigit() and token in compact:
+            return True
+    return False
 
 
 def distinctive_name_token(legal_name: str | None, text: str) -> str | None:

@@ -1,5 +1,5 @@
 from signalpost.http_client import Fetch
-from signalpost.nav_jobs import candidate_stubs, employer_match, match_nav_jobs
+from signalpost.nav_jobs import candidate_stubs, employer_match, match_nav_jobs, related_catalog_names
 
 
 def _fetch(url: str, body: dict, status: int = 200) -> Fetch:
@@ -117,6 +117,19 @@ def test_detail_fetches_stop_when_the_company_budget_is_spent():
     result = match_nav_jobs(client, lambda fetch: fetch, catalog, "810034882", {"name": "Parent AS"}, deadline=0)
     assert result["availability"] == "not_available"
     assert client.calls == []
+
+
+def test_related_catalog_names_keeps_a_longer_workplace_name():
+    catalog = {
+        "by_name": {
+            "hovslageren fus barnehage as": [],
+            "hovslageren fus barnehage avdeling": [],
+            "oslo": [],
+        }
+    }
+    found = related_catalog_names(catalog, ["HOVSLAGEREN FUS BARNEHAGE AS"])
+    assert "hovslageren fus barnehage avdeling" in found
+    assert "oslo" not in found
 
 
 def test_candidate_stubs_prefers_the_legal_name_and_dedupes():

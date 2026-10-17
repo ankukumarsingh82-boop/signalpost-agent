@@ -1,4 +1,5 @@
 from signalpost.parse_website import (
+    domain_contains_distinctive_token,
     extract_page,
     legal_name_in_text,
     organisation_number_pattern,
@@ -121,6 +122,15 @@ def test_labelled_number_in_a_script_verifies_and_a_bare_number_does_not():
     bare = "<html><body><script>var id=923609016;</script><p>Hei</p></body></html>"
     assert extract_page(labelled, ORG, "https://example.no/")["method"] == "embedded_organisation_number"
     assert extract_page(bare, ORG, "https://example.no/")["verified"] is False
+
+
+def test_token_match_requires_the_name_in_the_register_host():
+    assert domain_contains_distinctive_token("https://vierarkitekter.no", "VIER ARKITEKTER AS") is True
+    assert domain_contains_distinctive_token("https://www.glass.no", "GLASS-SERVICE SVENDSEN OG SØNN AS") is False
+    assert domain_contains_distinctive_token("https://lillesandhus.no/", "ZEINER BOLIG HÅNDVERK AS") is False
+    html = "<html><body><p>Bygget av håndverkere og håndverk.</p></body></html>"
+    extracted = extract_page(html, ORG, "https://lillesandhus.no/", legal_name="ZEINER BOLIG HÅNDVERK AS")
+    assert extracted["verified"] is False
 
 
 def test_generic_token_does_not_accept_a_register_host():

@@ -22,6 +22,7 @@ FEED_ORIGIN = "https://pam-stilling-feed.nav.no"
 PUBLIC_TOKEN_URL = FEED_ORIGIN + "/api/publicToken"
 FEED_URL = FEED_ORIGIN + "/api/v1/feed"
 UNDERENHET_URL = "https://data.brreg.no/enhetsregisteret/api/underenheter/{org}"
+LEGAL_FORMS = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti", "iks", "fkf", "sf", "hf", "rhf"}
 _parent_lock = threading.Lock()
 
 
@@ -171,6 +172,38 @@ def known_subunit_orgnrs(workplaces: dict[str, Any] | None) -> set[str]:
     return found
 
 
+def _stem(value: str) -> str:
+    tokens = [token for token in normalize_name(value).split() if token not in LEGAL_FORMS]
+    return " ".join(tokens)
+
+
+def related_catalog_names(catalog: dict[str, Any], names: list[str], *, limit: int = 8) -> list[str]:
+    """Catalog keys that extend, or are extended by, a company or workplace name."""
+    by_name = catalog.get("by_name") or {}
+    stems = []
+    for name in names:
+        stem = _stem(name)
+        if len(stem.replace(" ", "")) >= 10:
+            stems.append(stem)
+    if not stems:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for key in by_name:
+        if key in seen:
+            continue
+        for stem in stems:
+            if key == stem:
+                continue
+            if key.startswith(stem + " ") or (len(key.replace(" ", "")) >= 10 and stem.startswith(key + " ")):
+                seen.add(key)
+                found.append(key)
+                break
+        if len(found) >= limit:
+            break
+    return found
+
+
 def candidate_stubs(catalog: dict[str, Any], names: list[str], *, limit: int = 20) -> list[dict[str, str]]:
     by_name = catalog.get("by_name") or {}
     chosen: list[dict[str, str]] = []
@@ -252,6 +285,7 @@ def match_nav_jobs(
     if not parsed or not parsed.get("name"):
         return {"availability": "not_available", "note": "No confirmed legal name, so job ads were not matched.", "errors": []}
     names = [str(parsed.get("name"))] + workplace_names(workplaces)
+    names.extend(related_catalog_names(catalog, names))
     stubs = candidate_stubs(catalog, names)
     subunits = known_subunit_orgnrs(workplaces)
     note = catalog.get("note") or "NAV feed scanned."

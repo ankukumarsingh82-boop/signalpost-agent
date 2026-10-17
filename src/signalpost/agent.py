@@ -13,7 +13,7 @@ from .http_client import Fetch, HttpClient, UnsafeUrl, assert_public_http_url, a
 from .nav_jobs import match_nav_jobs
 from .news import research_news
 from .parse_brreg import merge_workplaces, parse_accounts, parse_entity, parse_group, parse_roles, parse_subunit_page
-from .parse_website import extract_page, robots_blocks_homepage
+from .parse_website import domain_contains_distinctive_token, extract_page, robots_blocks_homepage
 from .wikidata import wikipedia_title
 
 ENTITY_URL = "https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
@@ -418,7 +418,14 @@ def _research_website(
         if unpublishable_reason(extra.final_url) or not same_registrable_domain(listed, extra.final_url):
             continue
         pages.append((extra, extract_page(extra.text, org, extra.final_url, **identity)))
-    verified_pages = [(page, extracted) for page, extracted in pages if extracted.get("verified")]
+    legal_name = str((parsed or {}).get("name") or "")
+    verified_pages = []
+    for page, extracted in pages:
+        if not extracted.get("verified"):
+            continue
+        if extracted.get("method") == "distinctive_name_token" and not domain_contains_distinctive_token(listed, legal_name):
+            continue
+        verified_pages.append((page, extracted))
     if not verified_pages:
         return _empty_website(
             "ambiguous",
