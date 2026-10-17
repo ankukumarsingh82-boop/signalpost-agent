@@ -1,0 +1,65 @@
+{
+  "agent": "signalpost",
+  "version": "1.0.0",
+  "run_id": "sample-1000",
+  "started_at": "2026-10-17T07:25:01Z",
+  "completed_at": "2026-10-17T07:33:55Z",
+  "elapsed_ms": 534297,
+  "input_count": 1000,
+  "emitted_envelopes": 1000,
+  "resumed_profiles": 0,
+  "terminal_status": {
+    "completed": 1000
+  },
+  "field_coverage": {
+    "legal_name": 1000,
+    "annual_accounts": 998,
+    "leadership": 997,
+    "registered_workplaces": 1000,
+    "official_website": 45,
+    "registry_listed_website": 45,
+    "website_description": 34,
+    "employee_count": 135,
+    "job_postings": 4,
+    "public_news": 2,
+    "hiring_pages": 4,
+    "wikipedia_summary": 0,
+    "wikidata_description": 0,
+    "company_profile": 28
+  },
+  "operations": {
+    "requests": 5588,
+    "http_requests_including_shared_lookups": 5680,
+    "runtime_ms": 534297,
+    "third_party_cost_usd": 0,
+    "p50_ms": 2295,
+    "p95_ms": 13095,
+    "mean_ms": 3549
+  },
+  "models": [],
+  "apis": [
+    "https://data.brreg.no/enhetsregisteret/api (NLOD)",
+    "https://data.brreg.no/regnskapsregisteret/regnskap (NLOD)",
+    "https://query.wikidata.org/sparql (CC0, only with --wikidata)",
+    "https://*.wikipedia.org/api/rest_v1/page/summary (CC BY-SA, only with --wikidata)",
+    "https://pam-stilling-feed.nav.no public feed (free under NAV Arbeidsplassen terms; token fetched at runtime)",
+    "https://news.google.com/rss/search (RSS titles only; article bodies are not fetched)",
+    "company websites listed in the entity register, fetched only when robots.txt allows and the page identifies the company"
+  ],
+  "validation": {
+    "passed": true,
+    "envelope_count": 1000,
+    "issue_count": 0,
+    "issues": [],
+    "third_party_cost_ok": true
+  },
+  "nav_feed": {
+    "since": "2026-09-02",
+    "days": 45,
+    "pages": 92,
+    "active_stubs": 20399,
+    "capped": false,
+    "error": null,
+    "note": "Public Arbeidsplassen feed modified since 2026-09-02 (92 pages, 20399 active ads indexed by employer name)."
+  }
+}
